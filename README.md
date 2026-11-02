@@ -22,6 +22,19 @@ npm run preview
 
 O preview usa **http://127.0.0.1:4173**. Não abra `index.html` diretamente: os módulos e o Web Worker precisam do servidor local.
 
+## Publicar no GitHub Pages
+
+O workflow do GitHub Actions publica automaticamente a aplicação em
+**https://brunomoscoso.github.io/PPX-Log-Explore/** quando há alterações na branch `main`.
+Para ativar a publicação, abra **Settings → Pages** no repositório e selecione
+**GitHub Actions** como fonte de build e deploy. Também é possível iniciar uma
+publicação manual pela aba **Actions**, usando o workflow **Deploy to GitHub Pages**.
+
+A aplicação é estática e processa os logs localmente no navegador; os ficheiros
+selecionados pelo utilizador não são enviados ao GitHub Pages. O código do
+repositório e o site publicado podem ser públicos, por isso não inclua logs reais,
+credenciais ou outros dados privados no repositório.
+
 ## Utilizar a aplicação
 
 1. Selecione ou arraste um ficheiro `.log` ou `.txt` codificado em UTF-8.
