@@ -4,6 +4,20 @@ import { parseLogTimestamp } from './logTimestamp';
 const EVENT_START = /^(\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}\.\d{3})(?=\||$)/;
 const TIMESTAMP_LIKE = /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}/;
 
+/** Recupera a data de um pedido sem cabeçalho de log associado. */
+function requestTimestamp(content: string): string | undefined {
+  const header = /^Request Header:\s*(\{.*\})\s*$/.exec(content);
+  if (!header) return undefined;
+  try {
+    const value: unknown = (JSON.parse(header[1]!) as { Timestamp?: unknown }).Timestamp;
+    if (typeof value !== 'string') return undefined;
+    const date = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}:\d{2}:\d{2}\.\d{3})$/.exec(value);
+    return date ? `${date[3]}/${date[2]}/${date[1]} ${date[4]}` : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 interface EventStart {
   offset: number;
   lineNumber: number;
@@ -45,8 +59,9 @@ function parseHeader(header: string): Pick<LogEvent, 'level' | 'thread' | 'compo
 
 /**
  * Parser puro, sem I/O, armazenamento ou logging.
- * Apenas um timestamp válido no início de linha inicia um evento. As restantes
- * linhas pertencem ao anterior, mesmo quando parecem cabeçalhos danificados.
+ * Um timestamp válido no início de linha inicia um evento. Um Request Header
+ * inicial pode fornecer a data pelo seu Timestamp. As restantes linhas
+ * pertencem ao anterior, mesmo quando parecem cabeçalhos danificados.
  */
 export function parseLog(text: string): ParseResult {
   const events: LogEvent[] = [];
@@ -82,7 +97,7 @@ export function parseLog(text: string): ParseResult {
       ? original.slice(1)
       : original;
     const match = EVENT_START.exec(content);
-    const timestampText = match?.[1];
+    const timestampText = match?.[1] ?? (!current ? requestTimestamp(content) : undefined);
     const timestamp = timestampText === undefined ? null : parseLogTimestamp(timestampText);
 
     if (timestamp !== null && timestampText !== undefined) {
@@ -94,7 +109,7 @@ export function parseLog(text: string): ParseResult {
         headerEnd: line.index + original.length,
         timestamp,
         timestampText,
-        header: content.slice(timestampText.length),
+        header: match ? content.slice(timestampText.length) : content,
       };
     } else if (TIMESTAMP_LIKE.test(content)) {
       issues.push({

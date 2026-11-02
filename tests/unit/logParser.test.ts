@@ -1,8 +1,51 @@
 import { describe, expect, it } from 'vitest';
 import { parseLog } from '../../src/services/logParser';
+import { filterEvents, getSuggestedRange } from '../../src/services/logFilter';
+import { serializeEvents } from '../../src/services/logExporter';
 import { firstEvent, lastEvent, multilineEvent, syntheticLog } from '../fixtures/syntheticLogs';
 
 describe('parseLog', () => {
+  it.each(['\n', '\r\n', '\r'])('recupera o Timestamp do pedido inicial e preserva pesquisa e exportação (%j)', (newline) => {
+    const request = 'Request Header:{"MessageID":1,"Timestamp":"30/09/2026 14:34:40.580"}' + newline +
+      'Request Body:{"ServiceName":"Example"}' + newline;
+    const next = '2026/09/30 14:34:41.590|INFO|Example - Next';
+    const result = parseLog(request + next);
+    expect(result.preamble).toBe('');
+    expect(result.issues).toEqual([]);
+    expect(result.events).toHaveLength(2);
+    expect(result.events[0]).toMatchObject({
+      timestamp: Date.UTC(2026, 8, 30, 14, 34, 40, 580),
+      timestampText: '2026/09/30 14:34:40.580',
+      raw: request, message: request, level: '', lineNumber: 1,
+      startOffset: 0, endOffset: request.length,
+    });
+    const range = getSuggestedRange(result.events)!;
+    expect(range.startDate).toBe('2026-09-30');
+    expect(serializeEvents(filterEvents(result.events, range))).toBe(request + next);
+    expect(serializeEvents(filterEvents(result.events, { ...range, endTime: '14:34:40' }))).toBe(request);
+  });
+
+  it('aceita um ficheiro apenas com pedido e BOM', () => {
+    const input = '\uFEFFRequest Header:{"Timestamp":"30/09/2026 14:34:40.580"}\nRequest Body:{}';
+    const result = parseLog(input);
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]?.raw).toBe(input);
+    expect(result.preamble).toBe('');
+  });
+
+  it.each(['"31/02/2026 14:34:40.580"', 'null', '123', '"invalid"', '"30/09/2026 14:34:40.580",'])('preserva pedidos com Timestamp inválido: %s', (value) => {
+    const header = `Request Header:{"Timestamp":${value}}\n`;
+    expect(parseLog(header + firstEvent).preamble).toBe(header);
+  });
+
+  it('mantém o Timestamp do log quando o pedido já pertence a um evento', () => {
+    const input = firstEvent + 'Request Header:{"Timestamp":"30/09/2026 14:34:40.580"}\nRequest Body:{}';
+    const result = parseLog(input);
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]?.raw).toBe(input);
+    expect(result.events[0]?.timestampText).toBe('2026/10/26 14:34:13.996');
+  });
+
   it('extrai timestamps, níveis, threads, componentes e mensagens', () => {
     const result = parseLog(syntheticLog);
     expect(result.issues).toEqual([]);
