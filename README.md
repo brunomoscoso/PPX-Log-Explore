@@ -40,7 +40,7 @@ credenciais ou outros dados privados no repositório.
 1. Selecione ou arraste um ficheiro `.log` ou `.txt` codificado em UTF-8.
 2. A aplicação preenche o intervalo mínimo/máximo do ficheiro e apresenta os eventos em ordem cronológica.
 3. Ajuste as quatro datas/horas e, se necessário, use **Adicionar filtro** para escolher campos da transação. Preencha os valores e clique em **Pesquisar**. Alterar, adicionar ou remover campos só afeta os resultados após pesquisar.
-4. Clique num evento, ou use Enter/Espaço, para abrir um modal centrado com JSON automaticamente indentado e scroll próprio. Feche ao clicar fora, premir Escape ou usar o botão de fechar; o foco regressa à linha selecionada. **Ver original** permite consultar o texto exato. **Copiar evento** copia sempre o conteúdo original completo, tal como a exportação. JSON inválido ou incompleto mantém-se como está; a formatação visual não altera os dados, a ordem das propriedades ou a precisão dos números.
+4. Clique num evento, ou use Enter/Espaço, para abrir um modal centrado com JSON automaticamente indentado e scroll próprio. Feche ao clicar fora, premir Escape ou usar o botão de fechar; o foco regressa à linha selecionada. **Ver original** permite consultar o texto exato. **Copiar evento** copia o evento completo com o JSON indentado; **Copiar resultados** e **Exportar .log** preservam o conteúdo original. JSON inválido ou incompleto mantém-se como está; a formatação visual não altera os dados, a ordem das propriedades ou a precisão dos números.
 5. **Copiar resultados** e **Exportar .log** incluem todos os resultados da pesquisa aplicada, mesmo que existam várias páginas.
 6. **Limpar filtros** remove os filtros opcionais, repõe o intervalo completo e volta a pesquisar, mantendo o ficheiro carregado. Importar outro ficheiro também remove os filtros opcionais.
 
@@ -66,7 +66,7 @@ Data e horário permanecem visíveis. O seletor **Adicionar filtro** apresenta a
 
 Os filtros são combinados com **E**: o evento tem de estar dentro do intervalo e conter todos os valores indicados. A pesquisa é por evento, incluindo as suas linhas de continuação. Não reúne campos de eventos diferentes, nem inclui automaticamente outros eventos da mesma transação. Dentro de um evento, os campos podem ocorrer em diferentes objetos ou elementos de uma lista; não se exige que pertençam ao mesmo artigo da lista.
 
-Cada bloco iniciado por `Request Header:` com um `Timestamp` válido é tratado como um evento próprio, identificado como **REQUEST** na coluna **Tipo**. O horário do cabeçalho da requisição é usado na pesquisa temporal; a coluna **Nível** continua reservada a `DEBUG`, `INFO`, `WARN` e outros níveis do log.
+Cada bloco iniciado por `Request Header:` com um `Timestamp` válido é tratado como um evento próprio, identificado como **REQUEST** na coluna **Tipo**. O horário do cabeçalho da requisição é usado na pesquisa temporal; a coluna **Nível** continua reservada a `DEBUG`, `INFO`, `WARN` e outros níveis do log. No modal de um pedido, os botões **Header** e **Body** mostram cada secção separadamente; **Copiar evento** continua a copiar o bloco completo.
 
 As comparações são exatas, sem pesquisa por fragmentos. As chaves e os códigos não distinguem maiúsculas de minúsculas (`ArticleCode` e `articleCode` são reconhecidos). O `LoyaltyId` no corpo da requisição também corresponde ao filtro **ID de fidelização**. IDs e códigos preservam zeros iniciais e todos os dígitos, mesmo quando o log contém identificadores numéricos acima do limite de precisão de JavaScript. Quantidade, montante e IVA aceitam ponto ou vírgula decimal: `30`, `30.0` e `30,00` correspondem ao mesmo valor. A comparação decimal não usa arredondamentos de floating point.
 
@@ -207,7 +207,7 @@ React, Vite, CSS responsivo e Playwright integram esta entrega. A pesquisa tempo
 
 Na exportação, cada segmento `raw` e os seus terminadores são preservados. **Único caso de separação adicional:** se o antigo último evento não tiver terminador e a ordenação o colocar antes de outro, insere-se uma quebra de linha entre ambos para não colar os cabeçalhos. Usa-se o primeiro estilo de quebra encontrado nesse evento ou LF se não existir nenhum. Não são acrescentados cabeçalhos, comentários ou metadados ao ficheiro exportado.
 
-O preâmbulo sem timestamp fica fora dos resultados e da exportação; a interface informa quando existe. O download preserva CRLF/LF/CR. A cópia passa o texto original à API Clipboard, mas o sistema operativo pode normalizar finais de linha na área de transferência. A cópia requer permissão do navegador e contexto seguro (localhost/127.0.0.1 ou HTTPS); em caso de falha, a interface sugere usar a exportação.
+O preâmbulo sem timestamp fica fora dos resultados e da exportação; a interface informa quando existe. O download preserva CRLF/LF/CR. A cópia de evento envia a versão indentada para a API Clipboard; copiar resultados envia o conteúdo original. O sistema operativo pode normalizar finais de linha na área de transferência. A cópia requer permissão do navegador e contexto seguro (localhost/127.0.0.1 ou HTTPS); em caso de falha, a interface sugere usar a exportação.
 
 ## Validação e limites
 

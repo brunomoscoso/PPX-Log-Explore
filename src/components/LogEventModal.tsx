@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { LogEvent } from '../types/log.types';
-import { formatEventForDisplay } from '../services/logFormatter';
+import { formatEventForDisplay, formatLogMessage, splitRequestSections } from '../services/logFormatter';
 import { Icon } from './Icon';
 
 interface Props {
@@ -17,7 +17,19 @@ export function LogEventModal({ event, disabled, feedback, onCopy, onDismiss }: 
   const startedOutside = useRef(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [copyRequested, setCopyRequested] = useState(false);
+  const [requestSection, setRequestSection] = useState<'header' | 'body'>('header');
   const formatted = useMemo(() => formatEventForDisplay(event), [event]);
+  const requestSections = useMemo(
+    () => event.type === 'request' ? splitRequestSections(event.raw) : {},
+    [event],
+  );
+  const availableSections = (['header', 'body'] as const).filter((section) => requestSections[section] !== undefined);
+  const selectedSection = availableSections.includes(requestSection) ? requestSection : availableSections[0];
+  const sectionRaw = selectedSection ? requestSections[selectedSection]! : '';
+  const sectionFormatted = useMemo(() => formatLogMessage(sectionRaw), [sectionRaw]);
+  const displayedText = selectedSection
+    ? showOriginal ? sectionRaw : sectionFormatted
+    : showOriginal ? event.raw : formatted;
   const titleId = `event-title-${event.id}`;
 
   useEffect(() => {
@@ -65,13 +77,20 @@ export function LogEventModal({ event, disabled, feedback, onCopy, onDismiss }: 
       </header>
       <div className="modal-metadata">Linha {event.lineNumber}{event.thread ? ` · Thread ${event.thread}` : ''}{event.component ? ` · ${event.component}` : ''}</div>
       <div className="modal-actions">
-        <span>{showOriginal ? 'Texto original' : 'Vista de leitura'}</span>
+        {availableSections.length > 0
+          ? <div className="request-tabs" role="group" aria-label="Secções do pedido">
+            {availableSections.map((section) => <button key={section} className="button small quiet" type="button"
+              aria-pressed={selectedSection === section} onClick={() => setRequestSection(section)}>
+              {section === 'header' ? 'Header' : 'Body'}
+            </button>)}
+          </div>
+          : <span>{showOriginal ? 'Texto original' : 'Vista de leitura'}</span>}
         <div className="result-actions">
-          {formatted !== event.raw && <button className="button small quiet" type="button" aria-pressed={showOriginal} onClick={() => setShowOriginal(!showOriginal)}>{showOriginal ? 'Ver indentado' : 'Ver original'}</button>}
-          <button className="button small secondary" type="button" disabled={disabled} onClick={() => { setCopyRequested(true); onCopy(event.raw); }}><Icon name="copy" />Copiar evento</button>
+          {(selectedSection ? sectionFormatted !== sectionRaw : formatted !== event.raw) && <button className="button small quiet" type="button" aria-pressed={showOriginal} onClick={() => setShowOriginal(!showOriginal)}>{showOriginal ? 'Ver indentado' : 'Ver original'}</button>}
+          <button className="button small secondary" type="button" disabled={disabled} onClick={() => { setCopyRequested(true); onCopy(formatted); }}><Icon name="copy" />Copiar evento</button>
         </div>
       </div>
-      <pre tabIndex={0} aria-label={`Conteúdo ${showOriginal ? 'original' : 'legível'} do evento na linha ${event.lineNumber}`}>{showOriginal ? event.raw : formatted}</pre>
+      <pre tabIndex={0} aria-label={`Conteúdo ${showOriginal ? 'original' : 'legível'} do evento na linha ${event.lineNumber}`}>{displayedText}</pre>
       <footer className="modal-footer"><span role="status">{copyRequested ? disabled ? 'A copiar…' : feedback : ''}</span><span>Esc ou clique fora para fechar</span></footer>
     </div>
   </dialog>, document.body);

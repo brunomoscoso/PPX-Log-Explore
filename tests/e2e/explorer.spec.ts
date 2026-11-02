@@ -56,6 +56,15 @@ test('identifica pedidos como REQUEST e mantém o nível separado', async ({ pag
   await expect(page.locator('.log-table-heading')).toContainText('Nível');
   await expect(page.locator('.event-summary').first()).toContainText('REQUEST');
   await expect(page.locator('.event-summary').first().locator('.level')).toHaveText('—');
+  await page.locator('.event-summary').first().click();
+  const modal = page.getByRole('dialog', { name: 'Detalhes do evento' });
+  await expect(modal.locator('pre')).toContainText('"Timestamp"');
+  await expect(modal.locator('pre')).toContainText('Request Header:');
+  await expect(modal.locator('pre')).not.toContainText('"LoyaltyId"');
+  await modal.getByRole('button', { name: 'Body', exact: true }).click();
+  await expect(modal.locator('pre')).toContainText('"LoyaltyId"');
+  await expect(modal.locator('pre')).toContainText('Request Body:');
+  await expect(modal.locator('pre')).not.toContainText('"Timestamp"');
 });
 
 test('importa, sugere o intervalo, pesquisa com precisão e abre os detalhes no modal', async ({ page }, testInfo) => {
@@ -85,9 +94,12 @@ test('copia um evento e todos os resultados para a área de transferência', asy
   await page.getByRole('button', { name: /Abrir evento 2026\/10\/26 14:34:17.903/ }).click();
   await page.getByRole('button', { name: 'Copiar evento', exact: true }).click();
   await expect(page.getByRole('dialog').getByRole('status')).toContainText('Evento copiado');
-  // O clipboard do sistema operativo pode normalizar CRLF; a aplicação passa raw.
+  // O clipboard do sistema operativo pode normalizar CRLF.
   const normalize = (text: string) => text.replaceAll('\r\n', '\n');
-  expect(normalize(await page.evaluate(() => navigator.clipboard.readText()))).toBe(normalize(multi));
+  const copiedEvent = normalize(await page.evaluate(() => navigator.clipboard.readText()));
+  expect(copiedEvent).toContain('Request Header:\n{\n  "MessageID": 123\n}');
+  expect(copiedEvent).toContain('Request Body:\n{\n  "text": "<script>window.injected=true</script>",\n  "note": "ação"\n}');
+  expect(copiedEvent).not.toBe(normalize(multi));
   await page.getByRole('button', { name: 'Fechar detalhes do evento' }).click();
   await page.getByRole('button', { name: 'Copiar resultados', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Resultados copiados');

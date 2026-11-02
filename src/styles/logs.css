@@ -39,6 +39,9 @@
 .modal-metadata { font: 11px/1.6 var(--mono); color: #93a6c1; margin-top: 14px; overflow-wrap: anywhere; max-height: 90px; overflow: auto; flex-shrink: 0; }
 .modal-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 0 12px; flex-shrink: 0; }
 .modal-actions > span { font-size: 11px; color: var(--muted); }
+.request-tabs { display: flex; gap: 4px; }
+.request-tabs .button { min-height: 29px; padding: 4px 10px; font-size: 11px; }
+.request-tabs .button[aria-pressed="true"] { color: #c9ddff; background: #1b3554; border-color: #3a5b84; }
 .event-modal pre { flex: 1; min-height: 0; font: 13px/1.8 var(--mono); color: #d1dcee; margin: 0; padding: 18px; white-space: pre; overflow: auto; border: 1px solid #2c3b52; border-radius: 5px; background: #090f1b; tab-size: 4; scrollbar-color: #3b4b65 #111927; }
 .modal-footer { display: flex; justify-content: space-between; gap: 12px; padding-top: 14px; color: var(--muted); font-size: 11px; line-height: 1.5; flex-shrink: 0; }
 .empty-state { min-height: 335px; max-width: 540px; margin: auto; padding: 60px 24px; display: flex; flex-direction: column; align-items: center; text-align: center; justify-content: center; }

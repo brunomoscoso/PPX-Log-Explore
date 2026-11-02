@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatEventForDisplay, formatLogMessage } from '../../src/services/logFormatter';
+import { formatEventForDisplay, formatLogMessage, splitRequestSections } from '../../src/services/logFormatter';
 import { parseLog } from '../../src/services/logParser';
 
 describe('formatação visual de JSON nos logs', () => {
@@ -31,5 +31,21 @@ describe('formatação visual de JSON nos logs', () => {
     const event = parseLog(raw).events[0]!;
     expect(formatEventForDisplay(event)).toBe('2026/10/26 14:34:13.982|DEBUG|[11]|||123|Example - \n{\n  "ok": true\n}\r\n');
     expect(event.raw).toBe(raw);
+  });
+});
+
+describe('separação das secções de requests', () => {
+  it('separa Header e Body sem alterar o texto original do pedido', () => {
+    const raw = 'Request Header:{"MessageID":1}\r\nRequest Body:{"LoyaltyId":"123"}\r\n';
+    expect(splitRequestSections(raw)).toEqual({
+      header: 'Request Header:{"MessageID":1}',
+      body: 'Request Body:{"LoyaltyId":"123"}\r\n',
+    });
+  });
+
+  it('aceita secções ausentes, marcadores em linhas separadas e BOM', () => {
+    expect(splitRequestSections('\uFEFFRequest Header:\n{"MessageID":1}\n')).toEqual({
+      header: 'Request Header:\n{"MessageID":1}\n',
+    });
   });
 });

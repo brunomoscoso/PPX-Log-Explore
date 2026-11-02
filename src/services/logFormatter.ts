@@ -75,6 +75,24 @@ export function formatLogMessage(message: string): string {
   return output.join('');
 }
 
+export type RequestSection = 'header' | 'body';
+
+/** Separa as secções para apresentação; o texto original do evento não é alterado. */
+export function splitRequestSections(raw: string): Partial<Record<RequestSection, string>> {
+  const text = raw.replace(/^\uFEFF/, '');
+  const markers = [...text.matchAll(/(^|[\r\n])Request (Header|Body):/g)];
+  const sections: Partial<Record<RequestSection, string>> = {};
+  markers.forEach((marker, index) => {
+    const section = marker[2]!.toLowerCase() as RequestSection;
+    if (sections[section] !== undefined) return;
+    const nextMarker = markers[index + 1];
+    let end = nextMarker?.index ?? text.length;
+    if (nextMarker?.[1] === '\n' && text[end - 1] === '\r') end -= 1;
+    sections[section] = text.slice(marker.index! + marker[1]!.length, end);
+  });
+  return sections;
+}
+
 /** Só altera a apresentação da mensagem; o cabeçalho e event.raw ficam intactos. */
 export function formatEventForDisplay(event: Pick<LogEvent, 'raw' | 'message'>): string {
   if (!event.message || !event.raw.endsWith(event.message)) return event.raw;
