@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+.npm-cache/
+# Os logs reais podem conter informação interna. As fixtures são sintéticas.
+*.log
+!tests/fixtures/*.log

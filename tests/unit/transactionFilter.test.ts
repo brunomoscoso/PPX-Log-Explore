@@ -1,0 +1,124 @@
+import { describe, expect, it } from 'vitest';
+import { parseLog } from '../../src/services/logParser';
+import { filterEvents } from '../../src/services/logFilter';
+import { extractTransactionValues, validateTransactionFilters } from '../../src/services/transactionFilter';
+import { serializeEvents } from '../../src/services/logExporter';
+import type { TransactionFilter } from '../../src/types/transactionFilters.types';
+import { matchingTransaction, transactionEvent, transactionLog } from '../fixtures/transactionLogs';
+
+const range = { startDate: '2026-10-26', startTime: '14:34:00', endDate: '2026-10-26', endTime: '14:34:01' };
+const criteria: TransactionFilter[] = [
+  { field: 'articleCode', value: 'TEST-ARTICLE-01' },
+  { field: 'articleCodeFamily', value: '07' },
+  { field: 'quantity', value: '12,50' },
+  { field: 'totalAmount', value: '25.00' },
+  { field: 'vat', value: '23' },
+  { field: 'discountCouponsId', value: 'TEST-COUPON-01' },
+  { field: 'mopId', value: '0099' },
+  { field: 'clientLoyalty.id', value: '9007199254740993001' },
+  { field: 'clientLoyalty.cardId', value: '0000001234' },
+  { field: 'transactionGuid', value: '11111111-2222-4333-8444-555555555555' },
+];
+
+describe('filtros de campos da transação', () => {
+  it.each(criteria)('reconhece $field em objetos e listas aninhadas', (filter) => {
+    expect(filterEvents(parseLog(matchingTransaction).events, range, [filter])).toHaveLength(1);
+  });
+
+  it('combina todos os campos no mesmo evento e preserva a exportação original', () => {
+    const events = parseLog(transactionLog).events;
+    const results = filterEvents(events, range, criteria);
+    expect(results).toHaveLength(1);
+    expect(serializeEvents(results)).toBe(matchingTransaction);
+    expect(events).toHaveLength(3);
+  });
+
+  it('não reúne campos que só existem em eventos distintos da mesma transação', () => {
+    const guid = criteria.at(-1)!.value;
+    const input = transactionEvent({ articleCode: 'A', transactionGuid: guid }) + transactionEvent({ clientLoyalty: { cardId: 'B' }, transactionGuid: guid });
+    expect(filterEvents(parseLog(input).events, range, [{ field: 'articleCode', value: 'A' }, { field: 'clientLoyalty.cardId', value: 'B' }])).toEqual([]);
+  });
+
+  it('reconhece variantes de maiúsculas, sem depender de espaços ou posição', () => {
+    const input = transactionEvent({ BasketLines: [{ ArticleCode: 'test-article-01', Quantity: 12.5 }], PartnerInfo: { Transaction: { Id: '123', CardId: '0042' } } });
+    expect(filterEvents(parseLog(input).events, range, [criteria[0]!, criteria[2]!, { field: 'clientLoyalty.cardId', value: '0042' }, { field: 'clientLoyalty.id', value: '123' }])).toHaveLength(1);
+  });
+
+  it('reconhece POSTransactionID numérico e exige correspondência exata', () => {
+    const events = parseLog(transactionEvent({ POSTransactionID: 1018713 })).events;
+    expect(filterEvents(events, range, [{ field: 'POSTransactionID', value: '1018713' }])).toHaveLength(1);
+    expect(filterEvents(events, range, [{ field: 'POSTransactionID', value: '101871' }])).toHaveLength(0);
+  });
+
+  it('preserva IDs numéricos maiores que Number.MAX_SAFE_INTEGER', () => {
+    const input = transactionEvent({}).replace('{}', '{"clientLoyalty":{"id":9007199254740993001}}');
+    const events = parseLog(input).events;
+    expect(filterEvents(events, range, [criteria[7]!])).toHaveLength(1);
+    expect(filterEvents(events, range, [{ field: 'clientLoyalty.id', value: '9007199254740993000' }])).toHaveLength(0);
+  });
+
+  it('não confunde Id/CardId genéricos, quantityAvg ou valores parciais', () => {
+    const events = parseLog(transactionEvent({ id: '123', cardId: '0042', other: { id: '123' }, quantityAvg: 12.5, articleCode: 'TEST-ARTICLE-010' })).events;
+    for (const filter of [criteria[0]!, criteria[2]!, { field: 'clientLoyalty.id', value: '123' } as const, { field: 'clientLoyalty.cardId', value: '0042' } as const]) {
+      expect(filterEvents(events, range, [filter])).toHaveLength(0);
+    }
+  });
+
+  it('mantém zeros iniciais nos códigos e aceita zeros/negativos nos montantes', () => {
+    const events = parseLog(transactionEvent({ mopId: '0099', quantity: 0, totalAmount: -1.5 })).events;
+    expect(filterEvents(events, range, [{ field: 'mopId', value: '99' }])).toHaveLength(0);
+    expect(filterEvents(events, range, [{ field: 'quantity', value: '0,00' }, { field: 'totalAmount', value: '-1,50' }])).toHaveLength(1);
+  });
+
+  it('compara decimais e notação científica sem perder precisão', () => {
+    const input = transactionEvent({}).replace('{}', '{"totalAmount":9007199254740993.25,"quantity":1.25e1}');
+    const events = parseLog(input).events;
+    expect(filterEvents(events, range, [{ field: 'totalAmount', value: '9007199254740993,250' }, criteria[2]!])).toHaveLength(1);
+    expect(filterEvents(events, range, [{ field: 'totalAmount', value: '9007199254740993,26' }])).toHaveLength(0);
+  });
+
+  it('respeita o intervalo e o segundo final completo mesmo com filtros adicionais', () => {
+    const input = transactionEvent({ articleCode: 'A' }, '14:34:01.999') + transactionEvent({ articleCode: 'A' }, '14:34:02.000');
+    const results = filterEvents(parseLog(input).events, range, [{ field: 'articleCode', value: 'A' }]);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.timestampText).toBe('2026/10/26 14:34:01.999');
+  });
+
+  it('reconhece JSON em Request/Response e JSON codificado em strings', () => {
+    const input = transactionEvent({ nested: JSON.stringify({ articleCode: 'A' }) }) + 'Response:{"clientLoyalty":{"cardId":"B"}}\r\n';
+    expect(filterEvents(parseLog(input).events, range, [{ field: 'articleCode', value: 'A' }, { field: 'clientLoyalty.cardId', value: 'B' }])).toHaveLength(1);
+  });
+
+  it('reconhece GUID explícito na URL ou em mensagens, sem pesquisar valores soltos', () => {
+    const guid = criteria.at(-1)!;
+    for (const prefix of ['Method: POST, URI: https://example.invalid/?transactionGuid=', 'request for transaction guid = ']) {
+      const input = transactionEvent({}) + prefix + guid.value;
+      expect(filterEvents(parseLog(input).events, range, [guid])).toHaveLength(1);
+    }
+    expect(filterEvents(parseLog(transactionEvent({}) + guid.value).events, range, [guid])).toHaveLength(0);
+  });
+
+  it('ignora JSON inválido e campos em falta sem falhar', () => {
+    for (const text of ['texto', '{"articleCode":"A"', '{"articleCode":null}', '{"articleCode":true}', '[pump] {}']) {
+      const input = transactionEvent({}).replace('{}', text);
+      expect(filterEvents(parseLog(input).events, range, [{ field: 'articleCode', value: 'A' }])).toHaveLength(0);
+    }
+  });
+
+  it('reutiliza a extração sem modificar mensagens nem eventos', () => {
+    const event = parseLog(matchingTransaction).events[0]!;
+    const original = { ...event };
+    expect(extractTransactionValues(event)).toBe(extractTransactionValues(event));
+    expect(event).toEqual(original);
+  });
+
+  it.each(['', ' ', 'abc', '1,2,3', 'Infinity', '1e999999'])('valida entradas numéricas inválidas: %j', (value) => {
+    expect(() => validateTransactionFilters([{ field: 'quantity', value }])).toThrow();
+  });
+
+  it('exige valor em campos adicionados e impede repetições', () => {
+    expect(() => validateTransactionFilters([{ field: 'articleCode', value: '' }])).toThrow('Preencha');
+    expect(() => validateTransactionFilters([criteria[0]!, criteria[0]!])).toThrow('distintos');
+    expect(() => validateTransactionFilters([])).not.toThrow();
+  });
+});
