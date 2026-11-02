@@ -30,7 +30,7 @@ export function LogViewer({ view, loaded, recognizable, busy, generation, feedba
       </div>
     </div>
     <div className="log-scroll" ref={scroller}>
-      <div className="log-table-heading log-columns" aria-hidden="true"><span /><span>Timestamp <span className="sort-arrow">↑</span></span><span>Nível</span><span>Componente</span><span>Mensagem</span></div>
+      <div className="log-table-heading log-columns" aria-hidden="true"><span /><span>Timestamp <span className="sort-arrow">↑</span></span><span>Tipo</span><span>Nível</span><span>Componente</span><span>Mensagem</span></div>
       {total > 0 && view ? <ul className="event-list" aria-label="Eventos encontrados" key={generation}>
         {view.events.map((event) => <LogEventItem key={event.id} event={event} disabled={busy} feedback={feedback} onCopy={onCopyEvent} />)}
       </ul> : <div className="empty-state">

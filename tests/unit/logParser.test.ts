@@ -16,7 +16,7 @@ describe('parseLog', () => {
     expect(result.events[0]).toMatchObject({
       timestamp: Date.UTC(2026, 8, 30, 14, 34, 40, 580),
       timestampText: '2026/09/30 14:34:40.580',
-      raw: request, message: request, level: '', lineNumber: 1,
+      type: 'request', raw: request, message: request, level: '', lineNumber: 1,
       startOffset: 0, endOffset: request.length,
     });
     const range = getSuggestedRange(result.events)!;
@@ -38,12 +38,16 @@ describe('parseLog', () => {
     expect(parseLog(header + firstEvent).preamble).toBe(header);
   });
 
-  it('mantém o Timestamp do log quando o pedido já pertence a um evento', () => {
+  it('separa pedidos com Timestamp do próprio bloco dos eventos de log', () => {
     const input = firstEvent + 'Request Header:{"Timestamp":"30/09/2026 14:34:40.580"}\nRequest Body:{}';
     const result = parseLog(input);
-    expect(result.events).toHaveLength(1);
-    expect(result.events[0]?.raw).toBe(input);
-    expect(result.events[0]?.timestampText).toBe('2026/10/26 14:34:13.996');
+    expect(result.events).toHaveLength(2);
+    expect(result.events[0]).toMatchObject({ type: 'log', raw: firstEvent, timestampText: '2026/10/26 14:34:13.996' });
+    expect(result.events[1]).toMatchObject({
+      type: 'request',
+      raw: 'Request Header:{"Timestamp":"30/09/2026 14:34:40.580"}\nRequest Body:{}',
+      timestampText: '2026/09/30 14:34:40.580',
+    });
   });
 
   it('extrai timestamps, níveis, threads, componentes e mensagens', () => {
@@ -55,6 +59,7 @@ describe('parseLog', () => {
       id: 'line-1',
       timestamp: Date.UTC(2026, 9, 26, 14, 34, 13, 996),
       timestampText: '2026/10/26 14:34:13.996',
+      type: 'log',
       level: 'INFO',
       thread: '[11]',
       component: 'ComServer.DOMS.JPL.JplDomsManager',

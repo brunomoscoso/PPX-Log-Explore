@@ -93,6 +93,7 @@ export function extractTransactionValues(event: LogEvent): TransactionValues {
         const lower = key.toLowerCase();
         const field = fieldByKey.get(lower);
         if (field) add(field, child);
+        if (lower === 'loyaltyid') add('clientLoyalty.id', child);
         const parent = path.at(-1);
         // O Id genérico nunca corresponde ao ID de fidelização de outros objetos.
         const loyalty = parent === 'clientloyalty' || (parent === 'transaction' && path.at(-2) === 'partnerinfo');

@@ -60,7 +60,7 @@ export function LogEventModal({ event, disabled, feedback, onCopy, onDismiss }: 
     }}>
     <div className="event-modal-content">
       <header className="event-modal-header">
-        <div><h2 id={titleId}>Detalhes do evento</h2><p>{event.timestampText} · {event.level || 'Sem nível'}</p></div>
+        <div><h2 id={titleId}>Detalhes do evento</h2><p>{event.timestampText} · {event.type === 'request' ? 'REQUEST' : 'LOG'} · {event.level || 'Sem nível'}</p></div>
         <button className="button quiet modal-close" type="button" aria-label="Fechar detalhes do evento" onClick={onDismiss}>×</button>
       </header>
       <div className="modal-metadata">Linha {event.lineNumber}{event.thread ? ` · Thread ${event.thread}` : ''}{event.component ? ` · ${event.component}` : ''}</div>

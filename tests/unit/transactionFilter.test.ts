@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseLog } from '../../src/services/logParser';
-import { filterEvents } from '../../src/services/logFilter';
+import { filterEvents, getSuggestedRange } from '../../src/services/logFilter';
 import { extractTransactionValues, validateTransactionFilters } from '../../src/services/transactionFilter';
 import { serializeEvents } from '../../src/services/logExporter';
 import type { TransactionFilter } from '../../src/types/transactionFilters.types';
@@ -21,6 +21,22 @@ const criteria: TransactionFilter[] = [
 ];
 
 describe('filtros de campos da transação', () => {
+  it('inclui pedido inicial na pesquisa pelo LoyaltyId', () => {
+    const request = 'Request Header:{"Timestamp":"30/09/2026 14:34:40.580"}\n' +
+      'Request Body:{"LoyaltyId":"700000000000000001","BasketLines":[{"ArticleCode":"ITEM-01"}]}\n';
+    const next = '2026/09/30 14:34:40.590|INFO|Example - Next';
+    const events = parseLog(request + next).events;
+    const range = getSuggestedRange(events)!;
+
+    const results = filterEvents(events, range, [
+      { field: 'clientLoyalty.id', value: '700000000000000001' },
+      { field: 'articleCode', value: 'ITEM-01' },
+    ]);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.raw).toBe(request);
+  });
+
   it.each(criteria)('reconhece $field em objetos e listas aninhadas', (filter) => {
     expect(filterEvents(parseLog(matchingTransaction).events, range, [filter])).toHaveLength(1);
   });

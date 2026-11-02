@@ -4,6 +4,7 @@ export interface LogEvent {
   /** Milissegundos numa escala de calendário sem fuso. Não é um instante UTC real. */
   timestamp: number;
   timestampText: string;
+  type: 'log' | 'request';
   level: string;
   thread?: string;
   component?: string;

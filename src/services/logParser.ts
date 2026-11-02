@@ -24,6 +24,7 @@ interface EventStart {
   headerEnd: number;
   timestamp: number;
   timestampText: string;
+  type: 'log' | 'request';
   header: string;
 }
 
@@ -78,6 +79,7 @@ export function parseLog(text: string): ParseResult {
       id: `line-${current.lineNumber}`,
       timestamp: current.timestamp,
       timestampText: current.timestampText,
+      type: current.type,
       message: metadata.message + text.slice(current.headerEnd, endOffset),
       raw: text.slice(current.offset, endOffset),
       lineNumber: current.lineNumber,
@@ -97,7 +99,8 @@ export function parseLog(text: string): ParseResult {
       ? original.slice(1)
       : original;
     const match = EVENT_START.exec(content);
-    const timestampText = match?.[1] ?? (!current ? requestTimestamp(content) : undefined);
+    const requestTime = requestTimestamp(content);
+    const timestampText = match?.[1] ?? requestTime;
     const timestamp = timestampText === undefined ? null : parseLogTimestamp(timestampText);
 
     if (timestamp !== null && timestampText !== undefined) {
@@ -109,6 +112,7 @@ export function parseLog(text: string): ParseResult {
         headerEnd: line.index + original.length,
         timestamp,
         timestampText,
+        type: match ? 'log' : 'request',
         header: match ? content.slice(timestampText.length) : content,
       };
     } else if (TIMESTAMP_LIKE.test(content)) {

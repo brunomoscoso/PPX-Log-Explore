@@ -66,7 +66,9 @@ Data e horário permanecem visíveis. O seletor **Adicionar filtro** apresenta a
 
 Os filtros são combinados com **E**: o evento tem de estar dentro do intervalo e conter todos os valores indicados. A pesquisa é por evento, incluindo as suas linhas de continuação. Não reúne campos de eventos diferentes, nem inclui automaticamente outros eventos da mesma transação. Dentro de um evento, os campos podem ocorrer em diferentes objetos ou elementos de uma lista; não se exige que pertençam ao mesmo artigo da lista.
 
-As comparações são exatas, sem pesquisa por fragmentos. As chaves e os códigos não distinguem maiúsculas de minúsculas (`ArticleCode` e `articleCode` são reconhecidos). IDs e códigos preservam zeros iniciais e todos os dígitos, mesmo quando o log contém identificadores numéricos acima do limite de precisão de JavaScript. Quantidade, montante e IVA aceitam ponto ou vírgula decimal: `30`, `30.0` e `30,00` correspondem ao mesmo valor. A comparação decimal não usa arredondamentos de floating point.
+Cada bloco iniciado por `Request Header:` com um `Timestamp` válido é tratado como um evento próprio, identificado como **REQUEST** na coluna **Tipo**. O horário do cabeçalho da requisição é usado na pesquisa temporal; a coluna **Nível** continua reservada a `DEBUG`, `INFO`, `WARN` e outros níveis do log.
+
+As comparações são exatas, sem pesquisa por fragmentos. As chaves e os códigos não distinguem maiúsculas de minúsculas (`ArticleCode` e `articleCode` são reconhecidos). O `LoyaltyId` no corpo da requisição também corresponde ao filtro **ID de fidelização**. IDs e códigos preservam zeros iniciais e todos os dígitos, mesmo quando o log contém identificadores numéricos acima do limite de precisão de JavaScript. Quantidade, montante e IVA aceitam ponto ou vírgula decimal: `30`, `30.0` e `30,00` correspondem ao mesmo valor. A comparação decimal não usa arredondamentos de floating point.
 
 A extração percorre JSON válido em mensagens, Request/Response, objetos e listas aninhados. Também reconhece JSON codificado dentro de strings, até três níveis. JSON inválido/incompleto não gera correspondências de campos. O GUID é ainda reconhecido em `transactionGuid=…` numa URL ou em `transaction guid = …` no texto. `Id` e `CardId` genéricos não são confundidos com fidelização: além de `clientLoyalty`, é reconhecida a variante explícita `PartnerInfo.Transaction.Id/CardId` do serviço interno.
 
@@ -74,7 +76,7 @@ Um filtro adicionado sem valor apresenta uma validação, em vez de ser ignorado
 
 ## Estado da análise
 
-O parser inicial foi desenvolvido com exemplos sintéticos. Foi posteriormente analisado localmente o excerto real fornecido para os filtros de transação: foram reconhecidos 241 eventos e os dez campos pedidos. O excerto começa com linhas de Request sem o timestamp do evento anterior; essas linhas ficam no preâmbulo, fora da pesquisa, conforme o contrato do parser. Os dados reais não foram copiados para o projeto ou para fixtures; os testes automatizados continuam a usar exclusivamente dados inventados.
+O parser inicial foi desenvolvido com exemplos sintéticos. Foi posteriormente analisado localmente o excerto real fornecido para os filtros de transação: foram reconhecidos 241 eventos e os dez campos pedidos. Os blocos iniciais de Request têm timestamp próprio no cabeçalho e podem ser pesquisados como eventos. Os dados reais não foram copiados para o projeto ou para fixtures; os testes automatizados continuam a usar exclusivamente dados inventados.
 
 Aspetos identificados nos exemplos e tratados nesta etapa:
 

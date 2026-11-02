@@ -15,6 +15,7 @@ export const LogEventItem = memo(function LogEventItem({ event, onCopy, disabled
       onClick={() => setOpen(true)}>
       <Icon name="chevron" className="expand-chevron" />
       <span className="event-timestamp">{event.timestampText}</span>
+      <span className={`event-type event-type-${event.type}`}>{event.type === 'request' ? 'REQUEST' : 'LOG'}</span>
       <span><span className={`level level-${level}`}>{event.level || '—'}</span></span>
       <span className="event-component" title={event.component}>{shortComponent}</span>
       <span className="event-preview">{event.message.slice(0, 500).split(/[\r\n]/, 1)[0] || '—'}</span>

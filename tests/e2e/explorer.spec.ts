@@ -44,6 +44,20 @@ test('estado inicial acessível, sem ações de pesquisa ou exportação dispon�
   await expect(page.getByLabel('Data inicial', { exact: true })).toBeDisabled();
 });
 
+test('identifica pedidos como REQUEST e mantém o nível separado', async ({ page }) => {
+  const request = 'Request Header:{"Timestamp":"30/09/2026 14:34:40.580"}\n' +
+    'Request Body:{"LoyaltyId":"700000000000000001"}\n';
+  const next = '2026/09/30 14:34:40.590|INFO|Example - Next';
+  await upload(page, request + next);
+
+  await expect(page.locator('.event-summary')).toHaveCount(2);
+  await expect(page.locator('.event-type-request')).toHaveText('REQUEST');
+  await expect(page.locator('.log-table-heading')).toContainText('Tipo');
+  await expect(page.locator('.log-table-heading')).toContainText('Nível');
+  await expect(page.locator('.event-summary').first()).toContainText('REQUEST');
+  await expect(page.locator('.event-summary').first().locator('.level')).toHaveText('—');
+});
+
 test('importa, sugere o intervalo, pesquisa com precisão e abre os detalhes no modal', async ({ page }, testInfo) => {
   await upload(page);
   await expect(page.getByLabel('Hora inicial', { exact: true })).toHaveValue('14:33:59');
