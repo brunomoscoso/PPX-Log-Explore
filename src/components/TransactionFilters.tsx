@@ -1,4 +1,4 @@
-import { TRANSACTION_FIELDS } from '../types/transactionFilters.types';
+import { TRANSACTION_FIELDS, TRANSACTION_FILTER_GROUPS } from '../types/transactionFilters.types';
 import type { TransactionFilter } from '../types/transactionFilters.types';
 
 interface Props {
@@ -18,12 +18,21 @@ export function TransactionFilters({ filters, disabled, onChange }: Props) {
           if (field) onChange([...filters, { field: field.id, value: '' }]);
         }}>
         <option value="">{available.length ? '+ Adicionar filtro' : 'Todos os filtros adicionados'}</option>
-        {available.map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}
+        {TRANSACTION_FILTER_GROUPS.map((group) => {
+          const fields = group.fields.flatMap((id) => available.filter((field) => field.id === id));
+          return fields.length > 0 && <optgroup key={group.label} label={group.label}>
+            {fields.map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}
+          </optgroup>;
+        })}
       </select>
       <span>{filters.length ? 'Combinar todos os filtros · Valores exatos' : 'Campos da transação · Opcional'}</span>
     </div>
-    {filters.length > 0 && <div className="transaction-filter-fields">
-      {filters.map((filter) => {
+    {TRANSACTION_FILTER_GROUPS.map((group) => {
+      const groupFilters = filters.filter((filter) => group.fields.includes(filter.field));
+      return groupFilters.length > 0 && <fieldset className="transaction-filter-group" key={group.label}>
+        <legend>{group.label}</legend>
+        <div className="transaction-filter-fields">
+      {groupFilters.map((filter) => {
         const definition = TRANSACTION_FIELDS.find((field) => field.id === filter.field)!;
         const id = `filter-${filter.field}`;
         return <div className="transaction-filter-field" key={filter.field}>
@@ -36,6 +45,8 @@ export function TransactionFilters({ filters, disabled, onChange }: Props) {
           </div>
         </div>;
       })}
-    </div>}
+        </div>
+      </fieldset>;
+    })}
   </div>;
 }

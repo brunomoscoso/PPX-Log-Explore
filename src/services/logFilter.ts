@@ -2,6 +2,7 @@ import type { LogEvent } from '../types/log.types';
 import { parseLogTimestamp } from './logTimestamp';
 import type { TransactionFilter } from '../types/transactionFilters.types';
 import { createTransactionMatcher } from './transactionFilter';
+import { buildHttpPairs } from './httpPairs';
 
 export interface DateTimeRange {
   startDate: string;
@@ -32,10 +33,24 @@ export function sortEvents(events: readonly LogEvent[]): LogEvent[] {
   return [...events].sort((a, b) => a.timestamp - b.timestamp || a.startOffset - b.startOffset);
 }
 
-export function filterEvents(events: readonly LogEvent[], range: DateTimeRange, filters: readonly TransactionFilter[] = []): LogEvent[] {
+export function filterEvents(events: readonly LogEvent[], range: DateTimeRange, filters: readonly TransactionFilter[] = [], pairs: ReadonlyMap<string, LogEvent> = buildHttpPairs(events)): LogEvent[] {
   const { start, end } = parseRange(range);
   const matches = createTransactionMatcher(filters);
-  return sortEvents(events.filter((event) => event.timestamp >= start && event.timestamp <= end && matches(event)));
+  const matched = events.filter((event) => event.timestamp >= start && event.timestamp <= end && matches(event));
+  const matchedIds = new Set(matched.map((event) => event.id));
+  const results = new Map(matched.map((event) => [event.id, event]));
+  for (const event of matched) {
+    const related = pairs.get(event.id);
+    if (related) results.set(related.id, related);
+  }
+  return sortEvents([...results.values()].map((event) => {
+    const related = pairs.get(event.id);
+    return related ? { ...event, searchContext: {
+      relatedLineNumber: related.lineNumber,
+      includedByCorrelation: !matchedIds.has(event.id),
+      outsideRange: event.timestamp < start || event.timestamp > end,
+    } } : event;
+  }));
 }
 
 export function getSuggestedRange(events: readonly LogEvent[]): DateTimeRange | null {

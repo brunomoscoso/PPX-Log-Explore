@@ -15,10 +15,13 @@ export const LogEventItem = memo(function LogEventItem({ event, onCopy, disabled
       onClick={() => setOpen(true)}>
       <Icon name="chevron" className="expand-chevron" />
       <span className="event-timestamp">{event.timestampText}</span>
-      <span className={`event-type event-type-${event.type}`}>{event.type === 'request' ? 'REQUEST' : 'LOG'}</span>
+      <span className={`event-type event-type-${event.type}`}>{event.type.toUpperCase()}</span>
       <span><span className={`level level-${level}`}>{event.level || '—'}</span></span>
       <span className="event-component" title={event.component}>{shortComponent}</span>
-      <span className="event-preview">{event.message.slice(0, 500).split(/[\r\n]/, 1)[0] || '—'}</span>
+      <span className="event-preview">
+        {event.http?.method ? `${event.http.method} ${event.http.uri}` : event.http?.status ? `StatusCode: ${event.http.status}` : event.message.slice(0, 500).split(/[\r\n]/, 1)[0] || '—'}
+        {event.searchContext && <small className="event-relation">Par na linha {event.searchContext.relatedLineNumber}{event.searchContext.includedByCorrelation ? ' · Incluída por correlação' : ''}{event.searchContext.outsideRange ? ' · Fora do intervalo' : ''}</small>}
+      </span>
     </button>
     {open && <LogEventModal event={event} onCopy={onCopy} disabled={disabled} feedback={feedback} onDismiss={() => setOpen(false)} />}
   </li>;

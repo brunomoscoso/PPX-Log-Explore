@@ -1,5 +1,6 @@
 import type { LogEvent, ParseIssue, ParseResult } from '../types/log.types';
 import { parseLogTimestamp } from './logTimestamp';
+import { httpMetadata } from './httpLog';
 
 const EVENT_START = /^(\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}\.\d{3})(?=\||$)/;
 const TIMESTAMP_LIKE = /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}/;
@@ -36,10 +37,12 @@ function parseHeader(header: string): Pick<LogEvent, 'level' | 'thread' | 'compo
   const levelEnd = fields.indexOf('|');
   if (levelEnd < 0) return { level: fields, message: '' };
 
-  const level = fields.slice(0, levelEnd);
+  const levelField = fields.slice(0, levelEnd);
+  const inlineThread = /^([^\[]+)(\[[^\]]*\])$/.exec(levelField);
+  const level = inlineThread?.[1] ?? levelField;
   let remaining = fields.slice(levelEnd + 1);
   const threadMatch = /^(\[[^\]\r\n]*\])(?:\||$)/.exec(remaining);
-  const thread = threadMatch?.[1];
+  const thread = threadMatch?.[1] ?? inlineThread?.[2];
   if (threadMatch) remaining = remaining.slice(threadMatch[0].length);
 
   // Não assumir uma quantidade fixa de identificadores. O componente é o
@@ -74,13 +77,15 @@ export function parseLog(text: string): ParseResult {
   const finishEvent = (endOffset: number): void => {
     if (!current) return;
     const metadata = parseHeader(current.header);
+    const message = metadata.message + text.slice(current.headerEnd, endOffset);
     events.push({
       ...metadata,
       id: `line-${current.lineNumber}`,
       timestamp: current.timestamp,
       timestampText: current.timestampText,
       type: current.type,
-      message: metadata.message + text.slice(current.headerEnd, endOffset),
+      ...httpMetadata(metadata.component, message),
+      message,
       raw: text.slice(current.offset, endOffset),
       lineNumber: current.lineNumber,
       startOffset: current.offset,

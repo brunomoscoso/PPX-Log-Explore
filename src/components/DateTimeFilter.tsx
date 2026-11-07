@@ -11,12 +11,17 @@ interface Props {
   searching: boolean;
   dirty: boolean;
   error: string;
+  debugTotal: boolean;
+  errorsOnly: boolean;
+  onErrorsOnlyChange: (value: boolean) => void;
+  modeDisabled: boolean;
+  onDebugTotalChange: (value: boolean) => void;
   onChange: (range: DateTimeRange) => void;
   onSearch: () => void;
   onReset: () => void;
 }
 
-export function DateTimeFilter({ range, filters, onFiltersChange, disabled, searching, dirty, error, onChange, onSearch, onReset }: Props) {
+export function DateTimeFilter({ range, filters, onFiltersChange, disabled, searching, dirty, error, debugTotal, errorsOnly, onErrorsOnlyChange, modeDisabled, onDebugTotalChange, onChange, onSearch, onReset }: Props) {
   const fields = [
     ['startDate', 'Data inicial', 'date'], ['startTime', 'Hora inicial', 'time'],
     ['endDate', 'Data final', 'date'], ['endTime', 'Hora final', 'time'],
@@ -25,6 +30,11 @@ export function DateTimeFilter({ range, filters, onFiltersChange, disabled, sear
     <div className="section-heading"><h2 id="filter-title"><Icon name="clock" />Intervalo de pesquisa</h2>
       <span className="section-note">{dirty ? 'Alterações por aplicar' : 'Horário original do ficheiro'}</span></div>
     <form noValidate onSubmit={(event) => { event.preventDefault(); onSearch(); }}>
+      <div className="search-mode">
+        <label><input type="checkbox" checked={debugTotal} disabled={modeDisabled || errorsOnly} onChange={(event) => onDebugTotalChange(event.target.checked)} /> Debug total</label>
+        <label><input type="checkbox" checked={errorsOnly} disabled={modeDisabled} onChange={(event) => onErrorsOnlyChange(event.target.checked)} /> Apenas chamadas com erro</label>
+        <span>{errorsOnly ? 'HTTP 400–599 · Horário da response · Request e response juntas' : debugTotal }</span>
+      </div>
       <div className="filter-fields">
         {fields.map(([key, label, type]) => <div className="field" key={key}>
           <label htmlFor={key}>{label}</label>

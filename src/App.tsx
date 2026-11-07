@@ -27,6 +27,10 @@ export default function App() {
   const [appliedRange, setAppliedRange] = useState<DateTimeRange>(EMPTY_RANGE);
   const [filters, setFilters] = useState<TransactionFilter[]>([]);
   const [appliedFilters, setAppliedFilters] = useState<TransactionFilter[]>([]);
+  const [debugTotal, setDebugTotal] = useState(false);
+  const [appliedDebugTotal, setAppliedDebugTotal] = useState(false);
+  const [errorsOnly, setErrorsOnly] = useState(false);
+  const [appliedErrorsOnly, setAppliedErrorsOnly] = useState(false);
   const [view, setView] = useState<ResultPage | null>(null);
   const [generation, setGeneration] = useState(0);
   const [error, setError] = useState('');
@@ -72,10 +76,12 @@ export default function App() {
       setWarning('');
       const nextClient = new LogWorkerClient();
       client.current = nextClient;
-      const result = await nextClient.request({ command: 'load', file });
+      const result = await nextClient.request({ command: 'load', file, debugTotal, errorsOnly });
       if (result.kind !== 'loaded') throw new Error('Não foi possível carregar o ficheiro. Tente novamente.');
       setFilename(file.name);
       setView(result.view);
+      setAppliedDebugTotal(debugTotal);
+      setAppliedErrorsOnly(errorsOnly);
       setBounds(result.bounds);
       setRange(result.bounds ?? EMPTY_RANGE);
       setAppliedRange(result.bounds ?? EMPTY_RANGE);
@@ -92,7 +98,7 @@ export default function App() {
     });
   };
 
-  const search = (selectedRange = range, selectedFilters = filters) => {
+  const search = (selectedRange = range, selectedFilters = filters, selectedDebugTotal = debugTotal, selectedErrorsOnly = errorsOnly) => {
     if (!bounds || !client.current || working.current) return;
     try {
       parseRange(selectedRange);
@@ -103,13 +109,16 @@ export default function App() {
       return;
     }
     void runTask('searching', async () => {
-      const result = await client.current!.request({ command: 'search', range: selectedRange, filters: selectedFilters });
+      const result = await client.current!.request({ command: 'search', range: selectedRange, filters: selectedFilters, debugTotal: selectedDebugTotal, errorsOnly: selectedErrorsOnly });
       if (result.kind === 'view') {
         setView(result.view);
         setAppliedRange(selectedRange);
         setAppliedFilters(selectedFilters);
+        setAppliedDebugTotal(selectedDebugTotal);
+        setAppliedErrorsOnly(selectedErrorsOnly);
         setGeneration((value) => value + 1);
-        setNotice(`Pesquisa concluída: ${result.view.total.toLocaleString('pt-PT')} ${result.view.total === 1 ? 'evento encontrado' : 'eventos encontrados'}.`);
+        const noun = selectedErrorsOnly ? result.view.total === 1 ? 'chamada com erro encontrada' : 'chamadas com erro encontradas' : result.view.total === 1 ? 'evento encontrado' : 'eventos encontrados';
+        setNotice(`Pesquisa concluída: ${result.view.total.toLocaleString('pt-PT')} ${noun}.`);
       }
     });
   };
@@ -153,7 +162,9 @@ export default function App() {
       {error && <div className="message error-message" role="alert">{error}</div>}
       {warning && <div className="message warning-message" role="note">{warning}</div>}
       <DateTimeFilter range={range} filters={filters} disabled={!bounds || busy} searching={activity === 'searching'}
-        dirty={!!bounds && (JSON.stringify(range) !== JSON.stringify(appliedRange) || JSON.stringify(filters) !== JSON.stringify(appliedFilters))} error={filterError}
+        debugTotal={debugTotal} modeDisabled={busy} onDebugTotalChange={(next) => { setDebugTotal(next); search(range, filters, next); }}
+        errorsOnly={errorsOnly} onErrorsOnlyChange={(next) => { setErrorsOnly(next); search(range, filters, debugTotal, next); }}
+        dirty={!!bounds && (errorsOnly !== appliedErrorsOnly || debugTotal !== appliedDebugTotal || JSON.stringify(range) !== JSON.stringify(appliedRange) || JSON.stringify(filters) !== JSON.stringify(appliedFilters))} error={filterError}
         onFiltersChange={(next) => { setFilters(next); setFilterError(''); }}
         onChange={(next) => { setRange(next); setFilterError(''); }} onSearch={() => search()}
         onReset={() => { if (bounds) { setRange(bounds); setFilters([]); search(bounds, []); } }} />

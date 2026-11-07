@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { browserLog, filteredLog, first, multi, end, tie, after, nextDay } from '../fixtures/browserLogs';
 import { matchingTransaction, transactionEvent, transactionLog, transactionPayload } from '../fixtures/transactionLogs';
+import { httpRequest, httpResponse } from '../fixtures/httpLogs';
 
 async function upload(page: Page, text = browserLog, name = 'ComServer-sintetico.log') {
   await page.getByLabel('Ficheiro de logs', { exact: true }).setInputFiles({ name, mimeType: 'text/plain', buffer: Buffer.from(text) });
@@ -28,12 +29,154 @@ async function downloadText(page: Page) {
   return { text: await readFile(filePath, 'utf8'), name: download.suggestedFilename() };
 }
 
-test.beforeEach(async ({ page }) => { await page.goto('/'); });
+// Os testes de regressão existentes exercitam o comportamento completo anterior.
+test.beforeEach(async ({ page }) => { await page.goto('/'); await page.getByRole('checkbox', { name: 'Debug total', exact: true }).check(); });
+
+test('modo padrão mostra apenas HTTP JSON e Debug total recupera todos os eventos', async ({ page }) => {
+  await page.goto('/');
+  const debug = page.getByRole('checkbox', { name: 'Debug total', exact: true });
+  await expect(debug).not.toBeChecked();
+  const request = httpRequest();
+  const response = httpResponse();
+  const orphan = httpResponse('unlinked', '{"promotion":"ORPHAN"}', '14:34:02.000');
+  const text = request + first + response + orphan + httpRequest('xml', 'application/xml', { articleCode: 'ITEM-A' }, '14:34:03.000') + httpResponse('xml', '{}', '14:34:04.000');
+  await upload(page, text);
+  await expect(page.locator('.event-summary')).toHaveCount(3);
+  await expect(page.locator('.event-type')).toHaveText(['REQUEST', 'RESPONSE', 'RESPONSE']);
+  await expect(page.locator('.http-summary')).toContainText('1 responses reconhecidas pelo corpo JSON');
+  expect((await downloadText(page)).text).toBe(request + response + orphan);
+  await page.locator('.event-summary').nth(1).click();
+  const modal = page.getByRole('dialog');
+  await expect(modal.locator('pre')).toContainText('StatusCode: Created');
+  await modal.getByRole('button', { name: 'Body', exact: true }).click();
+  await expect(modal.locator('pre')).toContainText('PROMO-A');
+  await modal.getByRole('button', { name: 'Fechar detalhes do evento' }).click();
+  await addFilter(page, 'promotion', 'Promoção', 'PROMO-A');
+  await search(page);
+  await expect(page.locator('.event-summary')).toHaveCount(2);
+  expect((await downloadText(page)).text).toBe(request + response);
+  await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click();
+  await expect(page.locator('.event-summary')).toHaveCount(3);
+  await debug.check();
+  await expect(page.locator('.event-summary')).toHaveCount(6);
+  await debug.uncheck();
+  await expect(page.locator('.event-summary')).toHaveCount(3);
+  await page.getByRole('button', { name: 'Copiar resultados', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Resultados copiados');
+  expect((await page.evaluate(() => navigator.clipboard.readText())).replaceAll('\r\n', '\n')).toBe((request + response + orphan).replaceAll('\r\n', '\n'));
+});
+
+test('ficheiro sem HTTP JSON continua disponível através de Debug total', async ({ page }) => {
+  await page.goto('/');
+  await upload(page, first);
+  await expect(page.locator('.event-summary')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Nenhum evento encontrado para os filtros selecionados.' })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Debug total', exact: true }).check();
+  await expect(page.locator('.event-summary')).toHaveCount(1);
+  await page.getByRole('checkbox', { name: 'Debug total', exact: true }).uncheck();
+  await expect(page.locator('.event-summary')).toHaveCount(0);
+});
+
+test('pesquisas HTTP e Debug total incluem as duas mensagens pelo correlation-id', async ({ page }) => {
+  await page.goto('/');
+  const request = httpRequest('pair', 'application/json', { articleCode: 'ITEM-A' }, '14:33:00.000');
+  const response = httpResponse('pair', '{"promotion":"PROMO-A"}', '14:34:01.000', 'OK');
+  const later = httpRequest('pair', 'application/json', { articleCode: 'OTHER' }, '14:35:00.000') + httpResponse('pair', '{}', '14:35:01.000');
+  await upload(page, request + first + response + later);
+  await addFilter(page, 'promotion', 'Promoção', 'PROMO-A');
+  await search(page, '14:34:01', '14:34:01');
+  await expect(page.locator('.event-type')).toHaveText(['REQUEST', 'RESPONSE']);
+  await expect(page.locator('.event-summary').first()).toContainText('Incluída por correlação');
+  await expect(page.locator('.event-summary').first()).toContainText('Fora do intervalo');
+  expect((await downloadText(page)).text).toBe(request + response);
+  await page.getByRole('checkbox', { name: 'Debug total', exact: true }).check();
+  await expect(page.locator('.event-summary')).toHaveCount(2);
+  expect((await downloadText(page)).text).toBe(request + response);
+  await page.getByRole('button', { name: 'Remover filtro Promoção', exact: true }).click();
+  await addFilter(page, 'articleCode', 'Código do artigo', 'ITEM-A');
+  await search(page, '14:33:00', '14:33:00');
+  await expect(page.locator('.event-type')).toHaveText(['REQUEST', 'RESPONSE']);
+  await expect(page.locator('.event-summary').nth(1)).toContainText('Fora do intervalo');
+  await page.getByRole('button', { name: 'Copiar resultados', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Resultados copiados');
+  expect((await page.evaluate(() => navigator.clipboard.readText())).replaceAll('\r\n', '\n')).toBe((request + response).replaceAll('\r\n', '\n'));
+  await page.locator('.event-summary').nth(1).click();
+  await expect(page.getByRole('dialog')).toContainText('x-correlation-id: pair');
+  await expect(page.getByRole('dialog')).toContainText('Incluída por correlação');
+});
 
 async function addFilter(page: Page, field: string, label: string, value: string) {
   await page.getByLabel('Adicionar filtro', { exact: true }).selectOption(field);
   await page.getByLabel(label, { exact: true }).fill(value);
 }
+
+test('mostra erros por horário da response com request fora do intervalo e navegação da dupla', async ({ page }, testInfo) => {
+  await page.goto('/');
+  const request = httpRequest('failed', 'application/json', { articleCode: 'ITEM-A' }, '14:33:00.000');
+  const response = httpResponse('failed', '{"promotion":"PROMO-A"}', '14:34:01.000', 'BadRequest');
+  const orphan = httpResponse('missing', 'Not found', '14:34:01.500', '404 Not Found');
+  await upload(page, request + httpRequest('ok') + response + orphan + httpResponse('ok', '{}', '14:34:02.000'));
+  await search(page, '14:34:01', '14:34:01');
+  const errors = page.getByRole('checkbox', { name: 'Apenas chamadas com erro', exact: true });
+  await errors.check();
+  await expect(page.locator('.result-count')).toHaveText('2 chamadas com erro encontradas');
+  await expect(page.locator('.http-error-item')).toHaveCount(2);
+  await expect(page.locator('.http-error-item').first()).toContainText('Request fora do intervalo');
+  await expect(page.locator('.http-error-item').nth(1)).toContainText('Request não identificada');
+  await expect(page.getByRole('checkbox', { name: 'Debug total', exact: true })).toBeDisabled();
+  expect((await downloadText(page)).text).toBe(request + response + orphan);
+  await page.locator('.http-error-summary').first().click();
+  const modal = page.getByRole('dialog', { name: 'Detalhes da chamada com erro' });
+  await expect(modal.locator('pre')).toContainText('StatusCode: BadRequest');
+  await modal.getByRole('button', { name: 'Body', exact: true }).click();
+  await expect(modal.locator('pre')).toContainText('PROMO-A');
+  await modal.getByRole('button', { name: 'Request', exact: true }).click();
+  await expect(modal.locator('pre')).toContainText('ITEM-A');
+  await expect(modal).toContainText('Request fora do intervalo');
+  await modal.getByRole('button', { name: 'Copiar chamada', exact: true }).click();
+  await expect(modal.getByRole('status')).toContainText('copiado');
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain('ITEM-A');
+  expect(copied).toContain('PROMO-A');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(modal.locator('pre')).toBeVisible();
+  const box = await modal.boundingBox();
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: testInfo.outputPath('error-call-mobile.png'), fullPage: true });
+  await page.keyboard.press('Escape');
+  await page.locator('.http-error-summary').nth(1).click();
+  await expect(modal.getByRole('button', { name: 'Request', exact: true })).toBeDisabled();
+  await expect(modal).toContainText('Request não identificada');
+  await page.keyboard.press('Escape');
+  await addFilter(page, 'articleCode', 'Código do artigo', 'ITEM-A');
+  await search(page, '14:34:01', '14:34:01');
+  await expect(page.locator('.result-count')).toHaveText('1 chamada com erro encontrada');
+  expect((await downloadText(page)).text).toBe(request + response);
+  await errors.uncheck();
+  await expect(page.locator('.event-summary')).toHaveCount(0);
+});
+
+test('pagina chamadas com erro e exporta todas as duplas mantendo a pesquisa aplicada', async ({ page }) => {
+  await page.getByRole('checkbox', { name: 'Apenas chamadas com erro', exact: true }).check();
+  const text = Array.from({ length: 101 }, (_, index) => httpRequest(`call-${index}`) + httpResponse(`call-${index}`, '{}', '14:34:01.000', 'InternalServerError')).join('');
+  await upload(page, text);
+  await expect(page.locator('.result-count')).toHaveText('101 chamadas com erro encontradas');
+  await expect(page.locator('.http-error-item')).toHaveCount(100);
+  await page.getByRole('button', { name: 'Seguinte', exact: true }).click();
+  await expect(page.locator('.http-error-item')).toHaveCount(1);
+  expect((await downloadText(page)).text).toBe(text);
+  await page.getByRole('button', { name: 'Copiar resultados', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Resultados copiados');
+  expect((await page.evaluate(() => navigator.clipboard.readText())).replaceAll('\r\n', '\n')).toBe(text.replaceAll('\r\n', '\n'));
+  await addFilter(page, 'articleCode', 'Código do artigo', '');
+  await page.getByRole('checkbox', { name: 'Apenas chamadas com erro', exact: true }).uncheck();
+  await expect(page.getByRole('alert')).toContainText('Preencha');
+  await expect(page.locator('.result-count')).toHaveText('101 chamadas com erro encontradas');
+  expect((await downloadText(page)).text).toBe(text);
+  await page.getByRole('button', { name: 'Remover filtro Código do artigo', exact: true }).click();
+  await search(page);
+  await expect(page.locator('.result-count')).toHaveText('202 eventos encontrados');
+});
 
 test('estado inicial acessível, sem ações de pesquisa ou exportação disponíveis', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'PPX Log Explorer' })).toBeVisible();
@@ -86,6 +229,58 @@ test('importa, sugere o intervalo, pesquisa com precisão e abre os detalhes no 
   // Os dados ficam apenas em memória e nenhuma chave de armazenamento é criada.
   expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
   await page.screenshot({ path: testInfo.outputPath('desktop.png'), fullPage: true });
+});
+
+test('pesquisa apenas no bloco visível do modal e navega pelas ocorrências', async ({ page }) => {
+  const request = 'Request Header:{"Timestamp":"30/09/2026 14:34:40.580","note":"alvo"}\n' +
+    'Request Body:' + JSON.stringify({ first: 'Alvo', filler: Array.from({ length: 80 }, (_, i) => `linha ${i}`), last: 'ALVO', literal: '[a.*]' });
+  await upload(page, request);
+  await page.locator('.event-summary').click();
+  const modal = page.getByRole('dialog');
+  const input = modal.getByRole('searchbox', { name: 'Pesquisar neste bloco' });
+  const count = modal.locator('.modal-search-count');
+  const content = modal.locator('pre');
+  await page.keyboard.press('Control+f');
+  await expect(input).toBeFocused();
+  await input.fill('alvo');
+  await expect(count).toHaveText('1 de 1');
+  await modal.getByRole('button', { name: 'Body', exact: true }).click();
+  const originalText = await content.textContent();
+  await expect(count).toHaveText('1 de 2');
+  await expect(content.locator('mark')).toHaveCount(2);
+  await input.press('Enter');
+  await expect(count).toHaveText('2 de 2');
+  await expect(content.locator('.search-match-active')).toHaveText('ALVO');
+  await expect.poll(() => content.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  const activeBox = await content.locator('.search-match-active').boundingBox();
+  const contentBox = await content.boundingBox();
+  expect(activeBox!.y).toBeGreaterThanOrEqual(contentBox!.y);
+  expect(activeBox!.y + activeBox!.height).toBeLessThanOrEqual(contentBox!.y + contentBox!.height);
+  await input.press('Enter');
+  await expect(count).toHaveText('1 de 2');
+  await input.press('Shift+Enter');
+  await expect(count).toHaveText('2 de 2');
+  await modal.getByRole('button', { name: 'Ocorrência anterior', exact: true }).click();
+  await expect(count).toHaveText('1 de 2');
+  await modal.getByRole('button', { name: 'Próxima ocorrência', exact: true }).click();
+  await expect(count).toHaveText('2 de 2');
+  expect(await content.textContent()).toBe(originalText);
+  await input.fill('[a.*]');
+  await expect(count).toHaveText('1 de 1');
+  await expect(content.locator('mark')).toHaveText('[a.*]');
+  await modal.getByRole('button', { name: 'Ver original', exact: true }).click();
+  await expect(count).toHaveText('1 de 1');
+  await input.fill('Timestamp');
+  await expect(count).toHaveText('Sem resultados');
+  await expect(modal.getByRole('button', { name: 'Próxima ocorrência', exact: true })).toBeDisabled();
+  await input.fill('Detalhes do evento');
+  await expect(count).toHaveText('Sem resultados');
+  await modal.getByRole('button', { name: 'Limpar pesquisa', exact: true }).click();
+  await expect(input).toHaveValue('');
+  await expect(input).toBeFocused();
+  await expect(content.locator('mark')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(modal).toHaveCount(0);
 });
 
 test('copia um evento e todos os resultados para a área de transferência', async ({ page }) => {
@@ -270,6 +465,47 @@ test('constrói filtros opcionais, combina campos e exporta apenas a pesquisa ap
   await expect(page.locator('.transaction-filter-field')).toHaveCount(0);
   await expect(page.locator('.event-summary')).toHaveCount(3);
   await expect(page.locator('.header-file')).toHaveText('ComServer-sintetico.log');
+});
+
+test('organiza os filtros em grupos e pesquisa os campos Loyalt', async ({ page }) => {
+  const payload = { clientLoyalty: { code: '185001031173934437', id: '9803100021585485775', cardId: '1859590225275' }, campaign: '1000015588', promotion: '10000195354' };
+  const matching = transactionEvent(payload);
+  await upload(page, matching + transactionEvent({ ...payload, promotion: 'outra' }));
+  expect(await page.locator('#add-filter optgroup').evaluateAll((groups) => groups.map((group) => group.getAttribute('label')))).toEqual(['Loyalt', 'Continente', 'Transação', 'Artigos', 'Pagamento']);
+  await expect(page.locator('#add-filter optgroup[label="Loyalt"] option')).toHaveCount(5);
+  await addFilter(page, 'clientLoyalty.code', 'Código de fidelização', payload.clientLoyalty.code);
+  await addFilter(page, 'clientLoyalty.id', 'ID de fidelização', payload.clientLoyalty.id);
+  await addFilter(page, 'clientLoyalty.cardId', 'Cartão de fidelização', payload.clientLoyalty.cardId);
+  await addFilter(page, 'campaign', 'Campanha', payload.campaign);
+  await addFilter(page, 'promotion', 'Promoção', payload.promotion);
+  await expect(page.getByRole('group', { name: 'Loyalt', exact: true }).locator('input')).toHaveCount(5);
+  await expect(page.locator('#add-filter optgroup[label="Loyalt"]')).toHaveCount(0);
+  await search(page);
+  await expect(page.locator('.result-count')).toHaveText('1 evento encontrado');
+  expect((await downloadText(page)).text).toBe(matching);
+  await page.getByRole('button', { name: 'Remover filtro Promoção', exact: true }).click();
+  await expect(page.locator('#add-filter optgroup[label="Loyalt"] option')).toHaveText(['Promoção']);
+  await search(page);
+  await expect(page.locator('.result-count')).toHaveText('2 eventos encontrados');
+});
+
+test('pesquisa os quatro filtros do grupo Continente em valores escapados', async ({ page }) => {
+  const matching = transactionEvent({ properties: [
+    { Key: 'ContinenteBarcode', Value: JSON.stringify('00903400001') },
+    { Key: 'Vouchers', Value: JSON.stringify(JSON.stringify(['185001031173934001'])) },
+    { Key: 'ContinenteCoupons', Value: JSON.stringify(['COUPON-01']) },
+    { Key: 'ContinenteDiscountApplied', Value: '0' },
+  ] });
+  await upload(page, matching + transactionEvent({ ContinenteDiscountApplied: '1' }));
+  await expect(page.locator('#add-filter optgroup[label="Continente"] option')).toHaveCount(4);
+  await addFilter(page, 'ContinenteBarcode', 'Código de barras Continente', '00903400001');
+  await addFilter(page, 'Vouchers', 'Vouchers', '185001031173934001');
+  await addFilter(page, 'ContinenteCoupons', 'Cupões Continente', 'COUPON-01');
+  await addFilter(page, 'ContinenteDiscountApplied', 'Desconto Continente aplicado', '0');
+  await expect(page.getByRole('group', { name: 'Continente', exact: true }).locator('input')).toHaveCount(4);
+  await search(page);
+  await expect(page.locator('.result-count')).toHaveText('1 evento encontrado');
+  expect((await downloadText(page)).text).toBe(matching);
 });
 
 test('valida filtros vazios e decimais, permite recuperar e não junta eventos distintos', async ({ page }) => {

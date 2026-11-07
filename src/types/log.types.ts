@@ -4,7 +4,17 @@ export interface LogEvent {
   /** Milissegundos numa escala de calendário sem fuso. Não é um instante UTC real. */
   timestamp: number;
   timestampText: string;
-  type: 'log' | 'request';
+  type: 'log' | 'request' | 'response';
+  /** Contexto da pesquisa; não altera raw nem os metadados do evento original. */
+  searchContext?: { relatedLineNumber: number; includedByCorrelation: boolean; outsideRange: boolean };
+  http?: {
+    acceptsJson: boolean;
+    jsonBody: boolean;
+    correlationId?: string;
+    method?: string;
+    uri?: string;
+    status?: string;
+  };
   level: string;
   thread?: string;
   component?: string;

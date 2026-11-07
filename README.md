@@ -38,13 +38,33 @@ credenciais ou outros dados privados no repositório.
 ## Utilizar a aplicação
 
 1. Selecione ou arraste um ficheiro `.log` ou `.txt` codificado em UTF-8.
-2. A aplicação preenche o intervalo mínimo/máximo do ficheiro e apresenta os eventos em ordem cronológica.
+2. A aplicação preenche o intervalo mínimo/máximo do ficheiro e apresenta os eventos HTTP JSON em ordem cronológica. **Debug total** começa desmarcado; ative-o para pesquisar todos os eventos, como no modo anterior.
 3. Ajuste as quatro datas/horas e, se necessário, use **Adicionar filtro** para escolher campos da transação. Preencha os valores e clique em **Pesquisar**. Alterar, adicionar ou remover campos só afeta os resultados após pesquisar.
 4. Clique num evento, ou use Enter/Espaço, para abrir um modal centrado com JSON automaticamente indentado e scroll próprio. Feche ao clicar fora, premir Escape ou usar o botão de fechar; o foco regressa à linha selecionada. **Ver original** permite consultar o texto exato. **Copiar evento** copia o evento completo com o JSON indentado; **Copiar resultados** e **Exportar .log** preservam o conteúdo original. JSON inválido ou incompleto mantém-se como está; a formatação visual não altera os dados, a ordem das propriedades ou a precisão dos números.
 5. **Copiar resultados** e **Exportar .log** incluem todos os resultados da pesquisa aplicada, mesmo que existam várias páginas.
-6. **Limpar filtros** remove os filtros opcionais, repõe o intervalo completo e volta a pesquisar, mantendo o ficheiro carregado. Importar outro ficheiro também remove os filtros opcionais.
+6. **Limpar filtros** remove os filtros opcionais, repõe o intervalo completo e volta a pesquisar, mantendo o ficheiro carregado e o modo selecionado. Importar outro ficheiro também remove os filtros opcionais e mantém a escolha de Debug total.
 
 Não há upload para servidores, backend, autenticação ou filtros por texto/nível. Os dados ficam apenas na memória da sessão; recarregar ou fechar a página descarta os logs. A substituição de ficheiro liberta o worker anterior.
+
+## Modo HTTP JSON e Debug total
+
+Com **Debug total** desmarcado, a aplicação reconhece os eventos `LoggingHandler - Request:` / `Response:` com cabeçalhos HTTP. Inclui requests cujo `Accept` aceita `application/json` e responses correlacionadas por `x-correlation-id`, mesmo que sejam erros ou tenham corpo incompleto. Como responses normalmente não repetem `Accept`, também inclui responses sem request correlacionada quando o corpo é um objeto ou lista JSON válido. A interface indica quantas respostas foram reconhecidas dessa forma; não inventa pares com base na proximidade das linhas.
+
+O identificador de correlação pode ser reutilizado: para classificar uma response, considera-se a request anterior mais recente com esse ID. Uma response associada a uma request que não aceita JSON fica fora do modo padrão. Cabeçalhos aparentes dentro do body não contam. Pedidos internos `Request Header:` e os restantes logs continuam disponíveis em Debug total.
+
+O conjunto HTTP e o índice de pares são preparados uma vez no worker durante a importação. Datas e filtros de campos identificam as mensagens correspondentes no modo escolhido; em seguida, cada request encontrada inclui a response correspondente por `x-correlation-id`, e vice-versa. A mensagem acrescentada não precisa de satisfazer os filtros nem estar dentro do intervalo: a interface indica **Incluída por correlação**, a linha do par e **Fora do intervalo**, quando aplicável. As duas mensagens entram na cópia e exportação, sem duplicados, em ordem cronológica. O índice distingue chamadas sequenciais que reutilizam um ID e não associa chamadas ambíguas ou sem correlação segura.
+
+Alternar Debug total executa a pesquisa com os valores atuais; se houver um filtro inválido, é apresentada a validação e os resultados anteriores mantêm-se até uma pesquisa válida. Paginação, cópia e exportação usam a última pesquisa aplicada. Os filtros continuam a exigir todos os valores numa das mensagens; não combinam critérios repartidos entre request e response.
+
+Na lista, requests HTTP mostram método e URL, e responses mostram o estado. Ambas têm separadores **Header** e **Body** no modal, com pesquisa local ao bloco exibido.
+
+### Apenas chamadas com erro
+
+Ative **Apenas chamadas com erro** para consultar respostas HTTP **400–599**, incluindo estados por nome como `BadRequest`, `NotFound` e `InternalServerError`, sem indicar um código. Este modo pesquisa os erros HTTP de todo o ficheiro, independentemente de Accept ou do formato do body; Debug total fica temporariamente indisponível e a sua escolha anterior é recuperada ao desativar o modo de erros.
+
+O intervalo é aplicado ao **horário da response**. Cada resultado representa uma chamada, com método, URL, estado e acesso a **Request / Response** no mesmo modal. A request pode estar fora do intervalo e aparece identificada como tal. Respostas sem associação segura mostram **Request não identificada**, sem serem descartadas. A associação consome as requests por `x-correlation-id` na ordem do ficheiro, incluindo respostas de sucesso; IDs reutilizados em sequência são suportados, mas várias requests pendentes com o mesmo ID tornam a associação ambígua e não são emparelhadas por suposição.
+
+Os filtros opcionais devem corresponder integralmente à request **ou** à response, mantendo a dupla como resultado; não combinam critérios repartidos entre ambas. A paginação conta chamadas, não eventos individuais. **Copiar chamada** copia os dois eventos formatados; **Copiar evento** copia o separador Request/Response selecionado. **Copiar resultados** e **Exportar .log** incluem as duplas completas de todas as páginas, em ordem da response, com o texto original e incluindo requests fora do intervalo. Filtros inválidos mantêm a última pesquisa válida e a respetiva exportação.
 
 ## Filtros opcionais de transação
 
@@ -54,6 +74,7 @@ Data e horário permanecem visíveis. O seletor **Adicionar filtro** apresenta a
 | --- | --- |
 | GUID da transação | `transactionGuid` |
 | ID da transação POS | `POSTransactionID` |
+| Número do ticket | `ticketNumber` |
 | Código do artigo | `articleCode` |
 | Família do artigo | `articleCodeFamily` |
 | Quantidade | `quantity` |
@@ -63,10 +84,23 @@ Data e horário permanecem visíveis. O seletor **Adicionar filtro** apresenta a
 | Método de pagamento (MOP) | `mopId` |
 | ID de fidelização | `clientLoyalty.id` |
 | Cartão de fidelização | `clientLoyalty.cardId` |
+| Código de fidelização | `clientLoyalty.code` |
+| Campanha | `campaign` |
+| Promoção | `promotion` |
+| Código de barras Continente | `ContinenteBarcode` |
+| Vouchers | `Vouchers` |
+| Cupões Continente | `ContinenteCoupons` |
+| Desconto Continente aplicado | `ContinenteDiscountApplied` |
 
-Os filtros são combinados com **E**: o evento tem de estar dentro do intervalo e conter todos os valores indicados. A pesquisa é por evento, incluindo as suas linhas de continuação. Não reúne campos de eventos diferentes, nem inclui automaticamente outros eventos da mesma transação. Dentro de um evento, os campos podem ocorrer em diferentes objetos ou elementos de uma lista; não se exige que pertençam ao mesmo artigo da lista.
+Os filtros estão organizados por grupos na seleção e nos campos adicionados: **Loyalt** (código, ID e cartão de fidelização, campanha e promoção), **Transação** (GUID, ID POS e número do ticket), **Artigos** (código, família, quantidade e IVA) e **Pagamento** (montante total, cupão e método de pagamento).
+
+O grupo **Continente** reúne código de barras, vouchers, cupões e desconto aplicado. Reconhece propriedades diretas e pares `Key`/`Value`, incluindo representações XML com `#text`. Nos valores Continente, descodifica strings e listas JSON com até oito níveis de codificação: introduza apenas o código, sem aspas ou barras de escape. Vouchers e cupões são pesquisados por código individual exato; o desconto aceita valores decimais, incluindo `0`. Códigos preservam todos os dígitos e zeros iniciais.
+
+Os filtros são combinados com **E**: a mensagem que origina a correspondência tem de estar dentro do intervalo e conter todos os valores indicados. A pesquisa inclui as suas linhas de continuação e acrescenta a request ou response correlacionada. Não reúne campos de eventos diferentes nem inclui outros logs da transação. Dentro de um evento, os campos podem ocorrer em diferentes objetos ou elementos de uma lista; não se exige que pertençam ao mesmo artigo da lista. No modo de erros, aplica-se a regra específica do horário da response descrita acima.
 
 Cada bloco iniciado por `Request Header:` com um `Timestamp` válido é tratado como um evento próprio, identificado como **REQUEST** na coluna **Tipo**. O horário do cabeçalho da requisição é usado na pesquisa temporal; a coluna **Nível** continua reservada a `DEBUG`, `INFO`, `WARN` e outros níveis do log. No modal de um pedido, os botões **Header** e **Body** mostram cada secção separadamente; **Copiar evento** continua a copiar o bloco completo.
+
+A barra **Pesquisar neste bloco** procura texto apenas no conteúdo visível do modal, sem distinguir maiúsculas de minúsculas. As ocorrências ficam destacadas e podem ser percorridas pelas setas ou com **Enter** / **Shift + Enter**, com deslocamento automático até ao resultado. **Ctrl + F** (ou **Cmd + F**) dentro do modal foca esta pesquisa. Ao mudar de secção ou de vista, os resultados são recalculados.
 
 As comparações são exatas, sem pesquisa por fragmentos. As chaves e os códigos não distinguem maiúsculas de minúsculas (`ArticleCode` e `articleCode` são reconhecidos). O `LoyaltyId` no corpo da requisição também corresponde ao filtro **ID de fidelização**. IDs e códigos preservam zeros iniciais e todos os dígitos, mesmo quando o log contém identificadores numéricos acima do limite de precisão de JavaScript. Quantidade, montante e IVA aceitam ponto ou vírgula decimal: `30`, `30.0` e `30,00` correspondem ao mesmo valor. A comparação decimal não usa arredondamentos de floating point.
 
@@ -75,6 +109,8 @@ A extração percorre JSON válido em mensagens, Request/Response, objetos e lis
 Um filtro adicionado sem valor apresenta uma validação, em vez de ser ignorado. A extração é feita no worker e reutilizada entre pesquisas. Cópia e exportação usam todos os resultados da última pesquisa aplicada, sem alterações ao conteúdo original; filtros ainda por aplicar não mudam o download.
 
 ## Estado da análise
+
+Na análise local do `ComServer.log` fornecido para o modo HTTP, o parser reconheceu **5.353 eventos**, sem timestamps inválidos. O modo padrão selecionou **140 eventos: 70 requests com Accept JSON e 70 responses**. Nenhuma response tinha `Accept` ou `Content-Type: application/json`; 64 foram reconhecidas pela correlação e 6 pelo corpo JSON. Há identificadores de correlação reutilizados, pelo que não se deve agrupar todo o ficheiro apenas pelo ID. A validação usou apenas estatísticas; o ficheiro real não foi adicionado ao projeto.
 
 O parser inicial foi desenvolvido com exemplos sintéticos. Foi posteriormente analisado localmente o excerto real fornecido para os filtros de transação: foram reconhecidos 241 eventos e os dez campos pedidos. Os blocos iniciais de Request têm timestamp próprio no cabeçalho e podem ser pesquisados como eventos. Os dados reais não foram copiados para o projeto ou para fixtures; os testes automatizados continuam a usar exclusivamente dados inventados.
 

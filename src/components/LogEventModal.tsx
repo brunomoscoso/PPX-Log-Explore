@@ -1,26 +1,38 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { LogEvent } from '../types/log.types';
 import { formatEventForDisplay, formatLogMessage, splitRequestSections } from '../services/logFormatter';
 import { Icon } from './Icon';
+import { splitHttpSections } from '../services/httpLog';
+import type { HttpErrorCall } from '../services/httpErrors';
 
 interface Props {
   event: LogEvent;
+  errorCall?: HttpErrorCall;
   disabled: boolean;
   feedback: string;
   onCopy: (text: string) => void;
   onDismiss: () => void;
 }
 
-export function LogEventModal({ event, disabled, feedback, onCopy, onDismiss }: Props) {
+export function LogEventModal({ event: initialEvent, errorCall, disabled, feedback, onCopy, onDismiss }: Props) {
+  const [callPart, setCallPart] = useState<'request' | 'response'>('response');
+  const event = errorCall && callPart === 'request' && errorCall.request ? errorCall.request : initialEvent;
   const dialog = useRef<HTMLDialogElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const activeMatch = useRef<HTMLElement>(null);
+  const [query, setQuery] = useState('');
+  const [matchIndex, setMatchIndex] = useState(0);
   const startedOutside = useRef(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [copyRequested, setCopyRequested] = useState(false);
   const [requestSection, setRequestSection] = useState<'header' | 'body'>('header');
   const formatted = useMemo(() => formatEventForDisplay(event), [event]);
+  const formattedCall = useMemo(() => errorCall
+    ? [errorCall.request, errorCall.response].filter((item): item is LogEvent => item !== undefined).map(formatEventForDisplay).join('\n')
+    : '', [errorCall]);
   const requestSections = useMemo(
-    () => event.type === 'request' ? splitRequestSections(event.raw) : {},
+    () => event.http ? splitHttpSections(event.message) : event.type === 'request' ? splitRequestSections(event.raw) : {},
     [event],
   );
   const availableSections = (['header', 'body'] as const).filter((section) => requestSections[section] !== undefined);
@@ -31,6 +43,21 @@ export function LogEventModal({ event, disabled, feedback, onCopy, onDismiss }: 
     ? showOriginal ? sectionRaw : sectionFormatted
     : showOriginal ? event.raw : formatted;
   const titleId = `event-title-${event.id}`;
+  const matches = useMemo(() => {
+    if (!query) return [];
+    const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    return Array.from(displayedText.matchAll(pattern), (match) => ({ start: match.index, end: match.index + match[0].length }));
+  }, [displayedText, query]);
+  const currentMatch = Math.min(matchIndex, Math.max(0, matches.length - 1));
+
+  useEffect(() => { setMatchIndex(0); }, [displayedText, query]);
+  useEffect(() => {
+    activeMatch.current?.scrollIntoView({ block: 'center', inline: 'nearest' });
+  }, [matches, currentMatch]);
+
+  const moveMatch = (direction: number) => {
+    if (matches.length) setMatchIndex((currentMatch + direction + matches.length) % matches.length);
+  };
 
   useEffect(() => {
     const element = dialog.current!;
@@ -52,8 +79,14 @@ export function LogEventModal({ event, disabled, feedback, onCopy, onDismiss }: 
 
   return createPortal(<dialog ref={dialog} className="event-modal" aria-labelledby={titleId} aria-modal="true"
     onKeyDown={(event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        searchInput.current?.focus();
+        searchInput.current?.select();
+        return;
+      }
       if (event.key !== 'Tab') return;
-      const controls = event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]');
+      const controls = event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]');
       const first = controls[0];
       const last = controls[controls.length - 1];
       if (event.shiftKey && document.activeElement === first) {
@@ -72,10 +105,22 @@ export function LogEventModal({ event, disabled, feedback, onCopy, onDismiss }: 
     }}>
     <div className="event-modal-content">
       <header className="event-modal-header">
-        <div><h2 id={titleId}>Detalhes do evento</h2><p>{event.timestampText} · {event.type === 'request' ? 'REQUEST' : 'LOG'} · {event.level || 'Sem nível'}</p></div>
+        <div><h2 id={titleId}>{errorCall ? 'Detalhes da chamada com erro' : 'Detalhes do evento'}</h2><p>{event.timestampText} · {event.type.toUpperCase()} · {event.level || 'Sem nível'}</p></div>
         <button className="button quiet modal-close" type="button" aria-label="Fechar detalhes do evento" onClick={onDismiss}>×</button>
       </header>
+      {errorCall && <div className="error-call-navigation">
+        <strong className="http-error-status">{errorCall.statusCode} · {errorCall.response.http?.status}</strong>
+        <div className="request-tabs" role="group" aria-label="Eventos da chamada">
+          <button type="button" className="button small quiet" disabled={!errorCall.request} aria-pressed={callPart === 'request'} onClick={() => setCallPart('request')}>Request</button>
+          <button type="button" className="button small quiet" aria-pressed={callPart === 'response'} onClick={() => setCallPart('response')}>Response</button>
+        </div>
+        {!errorCall.request && <span>Request não identificada</span>}
+        {errorCall.requestOutsideRange && <span>Request fora do intervalo</span>}
+      </div>}
       <div className="modal-metadata">Linha {event.lineNumber}{event.thread ? ` · Thread ${event.thread}` : ''}{event.component ? ` · ${event.component}` : ''}</div>
+      {event.searchContext && <div className="modal-metadata">x-correlation-id: {event.http?.correlationId} · Par na linha {event.searchContext.relatedLineNumber}
+        {event.searchContext.includedByCorrelation && ' · Incluída por correlação'}{event.searchContext.outsideRange && ' · Fora do intervalo'}
+      </div>}
       <div className="modal-actions">
         {availableSections.length > 0
           ? <div className="request-tabs" role="group" aria-label="Secções do pedido">
@@ -88,9 +133,33 @@ export function LogEventModal({ event, disabled, feedback, onCopy, onDismiss }: 
         <div className="result-actions">
           {(selectedSection ? sectionFormatted !== sectionRaw : formatted !== event.raw) && <button className="button small quiet" type="button" aria-pressed={showOriginal} onClick={() => setShowOriginal(!showOriginal)}>{showOriginal ? 'Ver indentado' : 'Ver original'}</button>}
           <button className="button small secondary" type="button" disabled={disabled} onClick={() => { setCopyRequested(true); onCopy(formatted); }}><Icon name="copy" />Copiar evento</button>
+          {errorCall && <button className="button small secondary" type="button" disabled={disabled} onClick={() => { setCopyRequested(true); onCopy(formattedCall); }}>Copiar chamada</button>}
         </div>
       </div>
-      <pre tabIndex={0} aria-label={`Conteúdo ${showOriginal ? 'original' : 'legível'} do evento na linha ${event.lineNumber}`}>{displayedText}</pre>
+      <div className="modal-search" role="search" aria-label="Pesquisa no conteúdo do evento">
+        <label className="modal-search-field">
+          <Icon name="search" />
+          <input ref={searchInput} type="search" aria-label="Pesquisar neste bloco" placeholder="Pesquisar neste bloco…"
+            value={query} onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') { event.preventDefault(); moveMatch(event.shiftKey ? -1 : 1); }
+            }} />
+        </label>
+        <span className="modal-search-count" aria-live="polite" aria-atomic="true">
+          {query ? matches.length ? `${currentMatch + 1} de ${matches.length}` : 'Sem resultados' : 'Ctrl + F'}
+        </span>
+        <div className="modal-search-controls">
+          <button className="button small quiet" type="button" aria-label="Ocorrência anterior" title="Anterior (Shift + Enter)" disabled={!matches.length} onClick={() => moveMatch(-1)}>↑</button>
+          <button className="button small quiet" type="button" aria-label="Próxima ocorrência" title="Próxima (Enter)" disabled={!matches.length} onClick={() => moveMatch(1)}>↓</button>
+          <button className="button small quiet" type="button" aria-label="Limpar pesquisa" disabled={!query} onClick={() => { setQuery(''); searchInput.current?.focus(); }}>×</button>
+        </div>
+      </div>
+      <pre tabIndex={0} aria-label={`Conteúdo ${showOriginal ? 'original' : 'legível'} do evento na linha ${event.lineNumber}`}>
+        {matches.length ? <>{matches.map((match, index) => <Fragment key={match.start}>
+          {displayedText.slice(index ? matches[index - 1]!.end : 0, match.start)}
+          <mark ref={index === currentMatch ? activeMatch : undefined} className={index === currentMatch ? 'search-match-active' : undefined}>{displayedText.slice(match.start, match.end)}</mark>
+        </Fragment>)}{displayedText.slice(matches[matches.length - 1]!.end)}</> : displayedText}
+      </pre>
       <footer className="modal-footer"><span role="status">{copyRequested ? disabled ? 'A copiar…' : feedback : ''}</span><span>Esc ou clique fora para fechar</span></footer>
     </div>
   </dialog>, document.body);

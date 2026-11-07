@@ -21,6 +21,77 @@ const criteria: TransactionFilter[] = [
 ];
 
 describe('filtros de campos da transação', () => {
+  it('pesquisa Continente em pares Key/Value com listas e strings escapadas', () => {
+    const encoded = (value: unknown) => JSON.stringify(JSON.stringify(JSON.stringify(value)));
+    const input = transactionEvent({ properties: [
+      { Key: 'ContinenteBarcode', Value: JSON.stringify('00903400001') },
+      { Key: 'Vouchers', Value: encoded(['185001031173934001', '00042']) },
+      { Key: { '#text': 'ContinenteCoupons', '@xmlns': '' }, Value: { '#text': encoded(['COUPON-01']) } },
+      { Key: 'ContinenteDiscountApplied', Value: '0' },
+    ] });
+    const filters: TransactionFilter[] = [
+      { field: 'ContinenteBarcode', value: '00903400001' },
+      { field: 'Vouchers', value: '185001031173934001' },
+      { field: 'ContinenteCoupons', value: 'COUPON-01' },
+      { field: 'ContinenteDiscountApplied', value: '0,00' },
+    ];
+    const events = parseLog(input).events;
+    expect(filterEvents(events, range, filters)).toHaveLength(1);
+    expect(filterEvents(events, range, [{ field: 'Vouchers', value: '00042' }])).toHaveLength(1);
+    expect(filterEvents(events, range, [{ field: 'Vouchers', value: '42' }])).toHaveLength(0);
+    expect(filterEvents(events, range, [{ field: 'ContinenteBarcode', value: '009034' }])).toHaveLength(0);
+  });
+
+  it('suporta campos Continente diretos e números longos dentro de listas codificadas', () => {
+    const input = transactionEvent({ ContinenteBarcode: '00001', Vouchers: '[9803100021585485001]', ContinenteCoupons: ['001', '002'], ContinenteDiscountApplied: 0 });
+    expect(filterEvents(parseLog(input).events, range, [
+      { field: 'ContinenteBarcode', value: '00001' },
+      { field: 'Vouchers', value: '9803100021585485001' },
+      { field: 'ContinenteCoupons', value: '002' },
+      { field: 'ContinenteDiscountApplied', value: '0' },
+    ])).toHaveLength(1);
+  });
+
+  it('não associa Value de outro objeto nem valores vazios ou incompletos ao Continente', () => {
+    const input = transactionEvent({ properties: [
+      { Key: 'ContinenteBarcode' }, { Key: 'Other', Value: '9034' },
+      { Key: 'Vouchers', Value: '["123"' },
+      { Key: 'ContinenteCoupons', Value: '[]' },
+    ] });
+    const events = parseLog(input).events;
+    for (const filter of [
+      { field: 'ContinenteBarcode', value: '9034' },
+      { field: 'Vouchers', value: '123' },
+      { field: 'ContinenteCoupons', value: '[]' },
+    ] satisfies TransactionFilter[]) expect(filterEvents(events, range, [filter])).toHaveLength(0);
+  });
+
+  it('combina os cinco campos Loyalt sem perder precisão nos identificadores', () => {
+    const payload = '{"clientLoyalty":{"code":185001031173934437,"id":9803100021585485775,"cardId":"1859590225275"},"campaign":"1000015588","promotion":"10000195354"}';
+    const input = transactionEvent({}).replace('{}', payload);
+    const filters: TransactionFilter[] = [
+      { field: 'clientLoyalty.code', value: '185001031173934437' },
+      { field: 'clientLoyalty.id', value: '9803100021585485775' },
+      { field: 'clientLoyalty.cardId', value: '1859590225275' },
+      { field: 'campaign', value: '1000015588' },
+      { field: 'promotion', value: '10000195354' },
+    ];
+    const events = parseLog(input).events;
+    expect(filterEvents(events, range, filters)).toHaveLength(1);
+    for (const filter of filters) {
+      expect(filterEvents(events, range, [{ ...filter, value: filter.value.slice(0, -1) }])).toHaveLength(0);
+    }
+  });
+
+  it('reconhece código Loyalt aninhado e ignora códigos de outros objetos', () => {
+    const filter: TransactionFilter = { field: 'clientLoyalty.code', value: '00185' };
+    const input = transactionEvent({ nested: [{ clientLoyalty: { code: '00185' } }] });
+    expect(filterEvents(parseLog(input).events, range, [filter])).toHaveLength(1);
+    const unrelated = transactionEvent({ code: '00185', article: { code: '00185' }, clientLoyalty: { id: '00185' } });
+    expect(filterEvents(parseLog(unrelated).events, range, [filter])).toHaveLength(0);
+    expect(filterEvents(parseLog(input).events, range, [{ ...filter, value: '185' }])).toHaveLength(0);
+  });
+
   it('inclui pedido inicial na pesquisa pelo LoyaltyId', () => {
     const request = 'Request Header:{"Timestamp":"30/09/2026 14:34:40.580"}\n' +
       'Request Body:{"LoyaltyId":"700000000000000001","BasketLines":[{"ArticleCode":"ITEM-01"}]}\n';

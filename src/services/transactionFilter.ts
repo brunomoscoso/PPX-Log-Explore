@@ -4,6 +4,32 @@ import type { TransactionField, TransactionFilter, TransactionValues } from '../
 
 const fieldByKey = new Map(TRANSACTION_FIELDS.filter((field) => !field.id.includes('.')).map((field) => [field.id.toLowerCase(), field.id]));
 const cache = new WeakMap<LogEvent, TransactionValues>();
+const continenteFields = new Set<TransactionField>(['ContinenteBarcode', 'Vouchers', 'ContinenteCoupons', 'ContinenteDiscountApplied']);
+
+function parseLossless(json: string): unknown {
+  JSON.parse(json);
+  const lossless = json.replace(/"(?:\\[\s\S]|[^"\\])*"|(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)/gi,
+    (token: string, number: string | undefined) => number === undefined ? token : JSON.stringify(number));
+  return JSON.parse(lossless) as unknown;
+}
+
+function xmlText(value: unknown): unknown {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)['#text'] : value;
+}
+
+/** Descodifica valores e listas escapados, preservando códigos e zeros iniciais. */
+function continenteValues(value: unknown, depth = 0): string[] {
+  if (depth > 8) return [];
+  value = xmlText(value);
+  if (Array.isArray(value)) return value.flatMap((item) => continenteValues(item, depth + 1));
+  if (typeof value !== 'string') return [];
+  if (/^\s*["\[{]/.test(value)) {
+    try { return continenteValues(parseLossless(value), depth + 1); }
+    catch { return []; }
+  }
+  return [value];
+}
 
 /** Comparação decimal exata, sem arredondamentos de floating point. */
 function normalizeDecimal(value: string): string | null {
@@ -64,10 +90,7 @@ function jsonDocuments(text: string): unknown[] {
     } while (index < text.length && (quoted || stack.length));
     const json = text.slice(start, index);
     try {
-      JSON.parse(json); // Validar antes de transformar tokens numéricos em texto.
-      const lossless = json.replace(/"(?:\\[\s\S]|[^"\\])*"|(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)/gi,
-        (token: string, number: string | undefined) => number === undefined ? token : JSON.stringify(number));
-      documents.push(JSON.parse(lossless) as unknown);
+      documents.push(parseLossless(json));
     } catch { /* Texto não JSON ou incompleto não constitui uma correspondência. */ }
   }
   return documents;
@@ -78,10 +101,11 @@ export function extractTransactionValues(event: LogEvent): TransactionValues {
   if (cached) return cached;
   const values: TransactionValues = {};
   const add = (field: TransactionField, value: unknown) => {
-    if (typeof value !== 'string') return;
-    const normalized = normalize(field, value);
-    if (normalized === null || normalized === '') return;
-    (values[field] ??= new Set()).add(normalized);
+    const candidates = continenteFields.has(field) ? continenteValues(value) : typeof value === 'string' ? [value] : [];
+    for (const candidate of candidates) {
+      const normalized = normalize(field, candidate);
+      if (normalized !== null && normalized !== '') (values[field] ??= new Set()).add(normalized);
+    }
   };
   const pending = jsonDocuments(event.message).map((value) => ({ value, path: [] as string[], encodedDepth: 0 }));
   while (pending.length) {
@@ -89,12 +113,19 @@ export function extractTransactionValues(event: LogEvent): TransactionValues {
     if (Array.isArray(value)) {
       value.forEach((item: unknown) => pending.push({ value: item, path, encodedDepth }));
     } else if (value && typeof value === 'object') {
+      const entries = Object.entries(value);
+      const pairKey = xmlText(entries.find(([key]) => key.toLowerCase() === 'key')?.[1]);
+      const pairField = typeof pairKey === 'string' ? fieldByKey.get(pairKey.toLowerCase()) : undefined;
+      if (pairField && continenteFields.has(pairField)) {
+        add(pairField, entries.find(([key]) => key.toLowerCase() === 'value')?.[1]);
+      }
       for (const [key, child] of Object.entries(value)) {
         const lower = key.toLowerCase();
         const field = fieldByKey.get(lower);
         if (field) add(field, child);
         if (lower === 'loyaltyid') add('clientLoyalty.id', child);
         const parent = path.at(-1);
+        if (parent === 'clientloyalty' && lower === 'code') add('clientLoyalty.code', child);
         // O Id genérico nunca corresponde ao ID de fidelização de outros objetos.
         const loyalty = parent === 'clientloyalty' || (parent === 'transaction' && path.at(-2) === 'partnerinfo');
         if (loyalty && lower === 'id') add('clientLoyalty.id', child);
