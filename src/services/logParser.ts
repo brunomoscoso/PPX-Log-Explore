@@ -67,7 +67,7 @@ function parseHeader(header: string): Pick<LogEvent, 'level' | 'thread' | 'compo
  * inicial pode fornecer a data pelo seu Timestamp. As restantes linhas
  * pertencem ao anterior, mesmo quando parecem cabeçalhos danificados.
  */
-export function parseLog(text: string): ParseResult {
+export function parseLog(text: string, format: 'comserver' | 'polling' = 'comserver'): ParseResult {
   const events: LogEvent[] = [];
   const issues: ParseIssue[] = [];
   let current: EventStart | undefined;
@@ -76,7 +76,10 @@ export function parseLog(text: string): ParseResult {
 
   const finishEvent = (endOffset: number): void => {
     if (!current) return;
-    const metadata = parseHeader(current.header);
+    const pollingHeader = /^\|[^|]*\|(\[[^\]]*\])\|([^|]*)\|([^|]*)\|([\s\S]*)$/.exec(current.header);
+    const metadata = format === 'polling' && pollingHeader
+      ? { thread: pollingHeader[1]!, level: pollingHeader[2]!, component: pollingHeader[3]!, message: pollingHeader[4]! }
+      : parseHeader(current.header);
     const message = metadata.message + text.slice(current.headerEnd, endOffset);
     events.push({
       ...metadata,
@@ -103,10 +106,11 @@ export function parseLog(text: string): ParseResult {
     const content = line.index === 0 && original.startsWith('\uFEFF')
       ? original.slice(1)
       : original;
-    const match = EVENT_START.exec(content);
-    const requestTime = requestTimestamp(content);
+    const match = (format === 'polling' ? /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{4})(?=\||$)/ : EVENT_START).exec(content);
+    const requestTime = format === 'comserver' ? requestTimestamp(content) : undefined;
     const timestampText = match?.[1] ?? requestTime;
-    const timestamp = timestampText === undefined ? null : parseLogTimestamp(timestampText);
+    const base = timestampText === undefined ? null : parseLogTimestamp(format === 'polling' ? timestampText.replaceAll('-', '/').slice(0, 23) : timestampText);
+    const timestamp = base === null ? null : base + (format === 'polling' ? Number(timestampText!.slice(23)) / 10 : 0);
 
     if (timestamp !== null && timestampText !== undefined) {
       if (!current) preambleEnd = line.index;
@@ -120,7 +124,7 @@ export function parseLog(text: string): ParseResult {
         type: match ? 'log' : 'request',
         header: match ? content.slice(timestampText.length) : content,
       };
-    } else if (TIMESTAMP_LIKE.test(content)) {
+    } else if (TIMESTAMP_LIKE.test(content) || (format === 'polling' && /^\d{4}-\d{2}-\d{2} /.test(content))) {
       issues.push({
         code: 'invalid-timestamp',
         lineNumber,

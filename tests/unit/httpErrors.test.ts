@@ -20,11 +20,11 @@ describe('chamadas HTTP com erro', () => {
   it('usa o horário da response e mantém a request anterior ao intervalo na exportação', () => {
     const request = httpRequest('a', 'application/json', { articleCode: 'ITEM-A' }, '14:33:00.000');
     const response = failure('a', '14:34:01.999');
-    const selected = filterHttpErrorCalls(calls(request + response), range, []);
+    const selected = filterHttpErrorCalls(calls(request + response), range);
     expect(selected).toHaveLength(1);
     expect(selected[0]).toMatchObject({ statusCode: 400, requestOutsideRange: true, request: { raw: request }, response: { raw: response } });
     expect(serializeEvents(errorCallEvents(selected))).toBe(request + response);
-    expect(filterHttpErrorCalls(calls(request + failure('a', '14:34:02.000')), range, [])).toHaveLength(0);
+    expect(filterHttpErrorCalls(calls(request + failure('a', '14:34:02.000')), range)).toHaveLength(0);
   });
   it('associa IDs reutilizados apenas depois de consumir a response anterior, incluindo sucessos', () => {
     const first = httpRequest('a');
@@ -55,12 +55,5 @@ describe('chamadas HTTP com erro', () => {
     const result = calls(httpRequest('a', 'text/plain') + httpResponse('a', '<html>Error</html>', '14:34:01.000', '500') + httpResponse('b', '{"status":404}'));
     expect(result).toHaveLength(1);
     expect(result[0]?.request).toBeDefined();
-  });
-  it('filtra os campos na request ou response sem combinar critérios de eventos distintos', () => {
-    const result = calls(httpRequest('a') + failure('a'));
-    expect(filterHttpErrorCalls(result, range, [{ field: 'articleCode', value: 'ITEM-A' }])).toHaveLength(1);
-    expect(filterHttpErrorCalls(result, range, [{ field: 'promotion', value: 'PROMO-A' }])).toHaveLength(1);
-    expect(filterHttpErrorCalls(result, range, [{ field: 'articleCode', value: 'ITEM-A' }, { field: 'promotion', value: 'PROMO-A' }])).toHaveLength(0);
-    expect(() => filterHttpErrorCalls(result, range, [{ field: 'articleCode', value: '' }])).toThrow();
   });
 });

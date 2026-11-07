@@ -1,154 +1,97 @@
 import type { LogEvent } from '../types/log.types';
-import { TRANSACTION_FIELDS } from '../types/transactionFilters.types';
-import type { TransactionField, TransactionFilter, TransactionValues } from '../types/transactionFilters.types';
 
-const fieldByKey = new Map(TRANSACTION_FIELDS.filter((field) => !field.id.includes('.')).map((field) => [field.id.toLowerCase(), field.id]));
-const cache = new WeakMap<LogEvent, TransactionValues>();
-const continenteFields = new Set<TransactionField>(['ContinenteBarcode', 'Vouchers', 'ContinenteCoupons', 'ContinenteDiscountApplied']);
+export const TRANSACTION_FIELDS = [
+  { key: 'transaction', label: 'Número da transação', placeholder: 'Ex.: 1018225', aliases: ['transactionexternalid', 'origintransactionid', 'nativeid'] },
+  { key: 'article', label: 'Número do artigo', placeholder: 'Ex.: P0402830000 ou 0402830000', aliases: ['articlecode'] },
+  { key: 'position', label: 'Número da posição', placeholder: 'Ex.: 11401', aliases: ['businessunitexternalcode'] },
+  { key: 'family', label: 'Família do artigo', placeholder: 'Ex.: 23', aliases: ['articlecodefamily'] },
+  { key: 'quantity', label: 'Litros de combustível', placeholder: 'Ex.: 5,83 ou 5.83 (sem L)', aliases: ['quantity'] },
+  { key: 'total', label: 'Total da transação', placeholder: 'Ex.: 10 ou 10,00 (sem €)', aliases: ['totalamount'] },
+  { key: 'discountedTotal', label: 'Total com desconto', placeholder: 'Ex.: 10 ou 10,00 (sem €)', aliases: ['amountwithdiscount'] },
+  { key: 'card', label: 'Cartão Continente', placeholder: 'Ex.: 1850000000000 (sem espaços)', aliases: ['cardid'] },
+  { key: 'phone', label: 'Telemóvel Continente', placeholder: 'Ex.: 900000001 (como no log)', aliases: ['partnerbarcode'] },
+  { key: 'voucher', label: 'Cupão Continente', placeholder: 'Ex.: 185000000000000001', aliases: [] },
+  { key: 'invoice', label: 'Número da fatura (com tipo)', placeholder: 'Ex.: FS 102010015442FSAA011401/000001832', aliases: ['invoicenumber', 'referenceid'] },
+  { key: 'invoiceType', label: 'Tipo da fatura', placeholder: 'Ex.: Fatura Simplificada', aliases: ['subtype'] },
+  { key: 'mop', label: 'MOP', placeholder: 'Ex.: 9201', aliases: [] },
+  { key: 'ticket', label: 'Número do ticket', placeholder: 'Ex.: 11401031120261107699', aliases: ['ticketnumber'] },
+] as const;
+export type TransactionField = typeof TRANSACTION_FIELDS[number]['key'];
+export type TransactionFilterValues = Partial<Record<TransactionField, string>> & { text?: string };
+type Values = Map<TransactionField, string[]>;
+const cache = new WeakMap<LogEvent, Values>();
 
-function parseLossless(json: string): unknown {
-  JSON.parse(json);
-  const lossless = json.replace(/"(?:\\[\s\S]|[^"\\])*"|(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)/gi,
-    (token: string, number: string | undefined) => number === undefined ? token : JSON.stringify(number));
-  return JSON.parse(lossless) as unknown;
-}
-
-function xmlText(value: unknown): unknown {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)['#text'] : value;
-}
-
-/** Descodifica valores e listas escapados, preservando códigos e zeros iniciais. */
-function continenteValues(value: unknown, depth = 0): string[] {
-  if (depth > 8) return [];
-  value = xmlText(value);
-  if (Array.isArray(value)) return value.flatMap((item) => continenteValues(item, depth + 1));
-  if (typeof value !== 'string') return [];
-  if (/^\s*["\[{]/.test(value)) {
-    try { return continenteValues(parseLossless(value), depth + 1); }
-    catch { return []; }
-  }
-  return [value];
-}
-
-/** Comparação decimal exata, sem arredondamentos de floating point. */
-function normalizeDecimal(value: string): string | null {
-  const match = /^([+-]?)(\d+)(?:[.,](\d+))?(?:e([+-]?\d+))?$/i.exec(value.trim());
-  if (!match) return null;
-  const exponent = Number(match[4] ?? 0);
-  if (!Number.isInteger(exponent) || Math.abs(exponent) > 1000) return null;
-  const fraction = match[3] ?? '';
-  let digits = match[2]! + fraction;
-  const position = match[2]!.length + exponent;
-  if (position <= 0) digits = '0.' + '0'.repeat(-position) + digits;
-  else if (position >= digits.length) digits += '0'.repeat(position - digits.length);
-  else digits = digits.slice(0, position) + '.' + digits.slice(position);
-  let [integer = '', decimals = ''] = digits.split('.');
-  integer = integer.replace(/^0+(?=\d)/, '');
-  decimals = decimals.replace(/0+$/, '');
-  const normalized = integer + (decimals ? '.' + decimals : '');
-  return (match[1] === '-' && normalized !== '0' ? '-' : '') + normalized;
-}
-
-function normalize(field: TransactionField, value: string): string | null {
-  const definition = TRANSACTION_FIELDS.find((item) => item.id === field);
-  return definition?.kind === 'decimal' ? normalizeDecimal(value) : value.trim().toLowerCase();
-}
-
-export function validateTransactionFilters(filters: readonly TransactionFilter[]): void {
-  const used = new Set<string>();
-  for (const filter of filters) {
-    const definition = TRANSACTION_FIELDS.find((item) => item.id === filter.field);
-    if (!definition || used.has(filter.field)) throw new Error('Selecione campos distintos e válidos para os filtros adicionais.');
-    used.add(filter.field);
-    if (!filter.value.trim()) throw new Error(`Preencha o filtro «${definition.label}» ou remova-o.`);
-    if (normalize(filter.field, filter.value) === null) throw new Error(`Introduza um número válido em «${definition.label}» (por exemplo, 16,45).`);
-  }
-}
-
-/** Extrai blocos JSON completos sem confundir colchetes/chavetas dentro de strings. */
-function jsonDocuments(text: string): unknown[] {
-  const documents: unknown[] = [];
-  let index = 0;
-  while (index < text.length) {
-    if (text[index] !== '{' && text[index] !== '[') { index += 1; continue; }
-    const start = index;
-    const stack: string[] = [];
-    let quoted = false;
-    let escaped = false;
-    do {
-      const char = text[index++]!;
-      if (quoted) {
-        if (escaped) escaped = false;
-        else if (char === '\\') escaped = true;
-        else if (char === '"') quoted = false;
-      } else if (char === '"') quoted = true;
-      else if (char === '{' || char === '[') stack.push(char);
-      else if (char === '}' || char === ']') {
-        if (stack.pop() !== (char === '}' ? '{' : '[')) break;
+/** Extract complete JSON blocks embedded in messages. Never alters the original log. */
+function jsonBlocks(text: string): unknown[] {
+  const result: unknown[] = [];
+  let start = -1, depth = 0, quoted = false, escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (start < 0) {
+      if (char !== '{' && char !== '[') continue;
+      start = i; depth = 1; quoted = false; escaped = false;
+      continue;
+    }
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === '{' || char === '[') depth++;
+    else if (char === '}' || char === ']') {
+      if (--depth === 0) {
+        try { result.push(JSON.parse(text.slice(start, i + 1))); } catch { /* Non-JSON text. */ }
+        start = -1;
       }
-    } while (index < text.length && (quoted || stack.length));
-    const json = text.slice(start, index);
-    try {
-      documents.push(parseLossless(json));
-    } catch { /* Texto não JSON ou incompleto não constitui uma correspondência. */ }
+    }
   }
-  return documents;
+  return result;
 }
 
-export function extractTransactionValues(event: LogEvent): TransactionValues {
-  const cached = cache.get(event);
-  if (cached) return cached;
-  const values: TransactionValues = {};
-  const add = (field: TransactionField, value: unknown) => {
-    const candidates = continenteFields.has(field) ? continenteValues(value) : typeof value === 'string' ? [value] : [];
-    for (const candidate of candidates) {
-      const normalized = normalize(field, candidate);
-      if (normalized !== null && normalized !== '') (values[field] ??= new Set()).add(normalized);
+function eventValues(event: LogEvent): Values {
+  const existing = cache.get(event);
+  if (existing) return existing;
+  const values: Values = new Map();
+  const add = (key: TransactionField, value: unknown) => {
+    if (typeof value !== 'string' && typeof value !== 'number') return;
+    values.set(key, [...(values.get(key) ?? []), String(value)]);
+  };
+  const visit = (value: unknown, path: string[]) => {
+    if (Array.isArray(value)) { value.forEach(item => visit(item, path)); return; }
+    if (!value || typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value)) {
+      const lower = key.toLowerCase();
+      for (const field of TRANSACTION_FIELDS) {
+        if ((field.aliases as readonly string[]).includes(lower)) add(field.key, child);
+      }
+      if (lower === 'code' && path.at(-1) === 'clientloyalty' && path.at(-2) === 'vouchers') add('voucher', child);
+      if (lower === 'externalcode' && path.at(-1) === 'clienttransactionsmops') add('mop', child);
+      visit(child, [...path, lower]);
     }
   };
-  const pending = jsonDocuments(event.message).map((value) => ({ value, path: [] as string[], encodedDepth: 0 }));
-  while (pending.length) {
-    const { value, path, encodedDepth } = pending.pop()!;
-    if (Array.isArray(value)) {
-      value.forEach((item: unknown) => pending.push({ value: item, path, encodedDepth }));
-    } else if (value && typeof value === 'object') {
-      const entries = Object.entries(value);
-      const pairKey = xmlText(entries.find(([key]) => key.toLowerCase() === 'key')?.[1]);
-      const pairField = typeof pairKey === 'string' ? fieldByKey.get(pairKey.toLowerCase()) : undefined;
-      if (pairField && continenteFields.has(pairField)) {
-        add(pairField, entries.find(([key]) => key.toLowerCase() === 'value')?.[1]);
-      }
-      for (const [key, child] of Object.entries(value)) {
-        const lower = key.toLowerCase();
-        const field = fieldByKey.get(lower);
-        if (field) add(field, child);
-        if (lower === 'loyaltyid') add('clientLoyalty.id', child);
-        const parent = path.at(-1);
-        if (parent === 'clientloyalty' && lower === 'code') add('clientLoyalty.code', child);
-        // O Id genérico nunca corresponde ao ID de fidelização de outros objetos.
-        const loyalty = parent === 'clientloyalty' || (parent === 'transaction' && path.at(-2) === 'partnerinfo');
-        if (loyalty && lower === 'id') add('clientLoyalty.id', child);
-        if (loyalty && lower === 'cardid') add('clientLoyalty.cardId', child);
-        pending.push({ value: child, path: [...path, lower], encodedDepth });
-      }
-    } else if (typeof value === 'string' && encodedDepth < 3 && /^[\s]*[\[{]/.test(value)) {
-      for (const nested of jsonDocuments(value)) pending.push({ value: nested, path, encodedDepth: encodedDepth + 1 });
-    }
-  }
-  // Os requests também registam o GUID na query string e em mensagens textuais.
-  const guid = /\btransaction\s*guid\s*(?:=|:)\s*([\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})(?![\da-f-])/gi;
-  for (const match of event.message.matchAll(guid)) add('transactionGuid', match[1]);
+  jsonBlocks(event.message).forEach(value => visit(value, []));
   cache.set(event, values);
   return values;
 }
 
-export function createTransactionMatcher(filters: readonly TransactionFilter[]): (event: LogEvent) => boolean {
-  validateTransactionFilters(filters);
-  if (!filters.length) return () => true;
-  const criteria = filters.map(({ field, value }) => ({ field, value: normalize(field, value)! }));
-  return (event) => {
-    const values = extractTransactionValues(event);
-    return criteria.every(({ field, value }) => values[field]?.has(value) === true);
-  };
+function decimal(value: string): string {
+  const normalized = value.trim().replace(',', '.');
+  if (!/^[+-]?\d+(?:\.\d+)?$/.test(normalized)) return normalized;
+  const [integer = '', fraction = ''] = normalized.replace(/^[+-]/, '').split('.');
+  const whole = integer.replace(/^0+(?=\d)/, '');
+  const tail = fraction.replace(/0+$/, '');
+  return `${normalized.startsWith('-') && (whole !== '0' || tail) ? '-' : ''}${whole}${tail ? '.' + tail : ''}`;
+}
+
+/** AND between fields; aliases and correlated request/response values use OR. */
+export function matchesTransactionFilters(events: readonly LogEvent[], filters: TransactionFilterValues = {}): boolean {
+  const query = (filters.text ?? '').toLowerCase();
+  if (query && !events.some(event => event.raw.toLowerCase().includes(query))) return false;
+  return TRANSACTION_FIELDS.every(({ key }) => {
+    const query = filters[key]?.trim();
+    if (!query) return true;
+    const numeric = key === 'quantity' || key === 'total' || key === 'discountedTotal';
+    return events.some(event => (eventValues(event).get(key) ?? []).some(value =>
+      numeric ? decimal(value) === decimal(query) : value === query));
+  });
 }

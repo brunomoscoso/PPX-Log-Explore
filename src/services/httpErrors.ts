@@ -1,6 +1,5 @@
+import { matchesTransactionFilters, type TransactionFilterValues } from './transactionFilter';
 import type { LogEvent } from '../types/log.types';
-import type { TransactionFilter } from '../types/transactionFilters.types';
-import { createTransactionMatcher } from './transactionFilter';
 import { parseRange, type DateTimeRange } from './logFilter';
 import { buildHttpPairs } from './httpPairs';
 
@@ -48,11 +47,10 @@ export function buildHttpErrorCalls(events: readonly LogEvent[], pairs: Readonly
   return calls.sort((a, b) => a.response.timestamp - b.response.timestamp || a.response.startOffset - b.response.startOffset);
 }
 
-export function filterHttpErrorCalls(calls: readonly HttpErrorCall[], range: DateTimeRange, filters: readonly TransactionFilter[]): HttpErrorCall[] {
+export function filterHttpErrorCalls(calls: readonly HttpErrorCall[], range: DateTimeRange, filters: TransactionFilterValues = {}): HttpErrorCall[] {
   const { start, end } = parseRange(range);
-  const matches = createTransactionMatcher(filters);
-  return calls.filter(({ response, request }) => response.timestamp >= start && response.timestamp <= end &&
-    (matches(response) || (request !== undefined && matches(request))))
+  return calls.filter(({ request, response }) => response.timestamp >= start && response.timestamp <= end
+    && matchesTransactionFilters(request ? [request, response] : [response], filters))
     .map((call) => ({ ...call, requestOutsideRange: !!call.request && (call.request.timestamp < start || call.request.timestamp > end) }));
 }
 

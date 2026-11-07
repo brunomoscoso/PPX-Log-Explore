@@ -37,14 +37,38 @@ credenciais ou outros dados privados no repositório.
 
 ## Utilizar a aplicação
 
+Escolha a aba **ComServer** ou **PollingV6** antes de importar. Cada aba mantém o seu ficheiro, filtros, resultados e página de forma independente durante a sessão.
+
+Na aba **PollingV6**, mantenha o intervalo de datas/horas e combine os seis **Filtros rápidos**. Cada clique aplica a pesquisa imediatamente e permite ativar ou desativar um atalho. Requests e responses selecionados juntos mostram ambos. Os estados selecionados são combinados por OU e restringem os tipos escolhidos: requests + falhas mostra apenas pedidos com falha; falhas + comunicação mostra eventos de qualquer desses estados. Sem atalhos ativos, aparecem todos os eventos do intervalo. **Limpar filtros** desativa todos os atalhos e repõe o intervalo completo.
+
+- **Somente requests**: pedidos `Starting ... with request`, frames `REQUEST IP:` e esperas `Starting listening for transaction`.
+- **Somente responses**: respostas `Ended ... Response`, frames `RESPONSE IP:` e mensagens de resposta recebida (ACK/EOT/Last).
+- **Operações com falha**: ERROR/FATAL, `Success: false`, `ResultType: FAILURE/ERROR`, abortos e falhas explícitas. Inclui o pedido Hub associado e eventos que identificam a mesma transação com falha.
+- **Sem response identificada**: pedidos Hub sem resposta na mesma operação/componente/thread ou esperas de transação sem resposta para o mesmo ID/tipo. A associação considera o ficheiro inteiro, mesmo fora do intervalo. Casos ambíguos permanecem sem resposta identificada; frames sem ID de transação não são emparelhados por proximidade. A ausência de resposta no ficheiro não confirma uma falha.
+- **Erros de comunicação**: timeouts, desconexões, falhas de ligação, NACK e frames inválidos.
+- **Transações completas**: eventos com ID de uma transação que tem início e `was completed correctly`, sem aborto. ACK/EOT isolados e a mensagem genérica `completed` não bastam.
+
+Os resultados de todos os atalhos respeitam o intervalo selecionado. A caixa **Buscar texto no log** filtra automaticamente ao escrever, procurando texto literal no evento completo, incluindo continuações, sem distinguir maiúsculas/minúsculas. A busca combina-se com os atalhos e horários e abrange todas as páginas. **Ctrl+F** (ou **Cmd+F**) foca a caixa quando a aba PollingV6 tem um ficheiro carregado e não há um modal aberto. **Limpar filtros** também limpa o texto. O parser preserva as quatro casas decimais dos timestamps e as continuações. Cópia e exportação mantêm o texto original. Cada aba conserva a sua pesquisa ao alternar.
+
+
+Na aba **ComServer**:
+
+A caixa **Buscar texto no log**, à esquerda de **Adicionar filtro**, pesquisa texto literal enquanto escreve, sem distinguir maiúsculas/minúsculas. **Ctrl+F** ou **Cmd+F** foca a caixa quando não há um modal aberto. A busca combina-se com os filtros e horários, mantendo os pedidos e respostas associados, e funciona também em Debug total e Apenas chamadas com erro. **Limpar filtros** limpa igualmente o texto.
+
+Também estão disponíveis **Tipo da fatura** (`subType`), **MOP** (`clientTransactionsMops[].externalCode`) e **Número do ticket** (`ticketNumber`). O MOP não procura campos `externalCode` de outros objetos. Todos os campos têm um exemplo de preenchimento: escreva apenas o valor, sem aspas ou chave JSON. Para o tipo da fatura, use o texto completo, como `Fatura Simplificada`; para o ticket, mantenha todos os dígitos.
+
+Use **Adicionar filtro** para selecionar número da transação, artigo, posição, família, litros, total, total com desconto, cartão Continente, telemóvel Continente, cupão ou fatura. Preencha os valores e clique em **Pesquisar**. Os filtros preenchidos são combinados (todos têm de corresponder), com correspondência exata; campos vazios não restringem a pesquisa. Litros e montantes aceitam ponto ou vírgula decimal e zeros finais (`10`, `10.00` e `10,00` são equivalentes). Identificadores preservam zeros iniciais e o artigo pode ter qualquer prefixo.
+
+O número da transação pesquisa `TransactionExternalId`, `originTransactionId` e `nativeId`. A fatura pesquisa `invoiceNumber` e `referenceId`, incluindo o tipo. O cupão pesquisa especificamente `vouchers[].clientLoyalty.code`. As chaves JSON são reconhecidas sem distinguir maiúsculas/minúsculas, em objetos e listas de blocos JSON completos. Os campos podem estar na request ou na response da mesma chamada correlacionada; as duas mensagens continuam juntas. Os filtros também se aplicam a **Debug total** e **Apenas chamadas com erro**. Cópia, exportação e paginação usam a última pesquisa aplicada. **Limpar filtros** remove os filtros adicionados e repõe o intervalo completo.
+
 1. Selecione ou arraste um ficheiro `.log` ou `.txt` codificado em UTF-8.
 2. A aplicação preenche o intervalo mínimo/máximo do ficheiro e apresenta os eventos HTTP JSON em ordem cronológica. **Debug total** começa desmarcado; ative-o para pesquisar todos os eventos, como no modo anterior.
-3. Ajuste as quatro datas/horas e, se necessário, use **Adicionar filtro** para escolher campos da transação. Preencha os valores e clique em **Pesquisar**. Alterar, adicionar ou remover campos só afeta os resultados após pesquisar.
+3. Ajuste as quatro datas/horas e clique em **Pesquisar**.
 4. Clique num evento, ou use Enter/Espaço, para abrir um modal centrado com JSON automaticamente indentado e scroll próprio. Feche ao clicar fora, premir Escape ou usar o botão de fechar; o foco regressa à linha selecionada. **Ver original** permite consultar o texto exato. **Copiar evento** copia o evento completo com o JSON indentado; **Copiar resultados** e **Exportar .log** preservam o conteúdo original. JSON inválido ou incompleto mantém-se como está; a formatação visual não altera os dados, a ordem das propriedades ou a precisão dos números.
 5. **Copiar resultados** e **Exportar .log** incluem todos os resultados da pesquisa aplicada, mesmo que existam várias páginas.
-6. **Limpar filtros** remove os filtros opcionais, repõe o intervalo completo e volta a pesquisar, mantendo o ficheiro carregado e o modo selecionado. Importar outro ficheiro também remove os filtros opcionais e mantém a escolha de Debug total.
+6. **Limpar filtros** repõe o intervalo completo e volta a pesquisar, mantendo o ficheiro carregado e o modo selecionado.
 
-Não há upload para servidores, backend, autenticação ou filtros por texto/nível. Os dados ficam apenas na memória da sessão; recarregar ou fechar a página descarta os logs. A substituição de ficheiro liberta o worker anterior.
+Não há upload para servidores, backend ou autenticação. Os dados ficam apenas na memória da sessão; recarregar ou fechar a página descarta os logs. A substituição de ficheiro liberta o worker anterior da aba correspondente.
 
 ## Modo HTTP JSON e Debug total
 
@@ -52,9 +76,9 @@ Com **Debug total** desmarcado, a aplicação reconhece os eventos `LoggingHandl
 
 O identificador de correlação pode ser reutilizado: para classificar uma response, considera-se a request anterior mais recente com esse ID. Uma response associada a uma request que não aceita JSON fica fora do modo padrão. Cabeçalhos aparentes dentro do body não contam. Pedidos internos `Request Header:` e os restantes logs continuam disponíveis em Debug total.
 
-O conjunto HTTP e o índice de pares são preparados uma vez no worker durante a importação. Datas e filtros de campos identificam as mensagens correspondentes no modo escolhido; em seguida, cada request encontrada inclui a response correspondente por `x-correlation-id`, e vice-versa. A mensagem acrescentada não precisa de satisfazer os filtros nem estar dentro do intervalo: a interface indica **Incluída por correlação**, a linha do par e **Fora do intervalo**, quando aplicável. As duas mensagens entram na cópia e exportação, sem duplicados, em ordem cronológica. O índice distingue chamadas sequenciais que reutilizam um ID e não associa chamadas ambíguas ou sem correlação segura.
+O conjunto HTTP e o índice de pares são preparados uma vez no worker durante a importação. Datas e horas identificam as mensagens correspondentes no modo escolhido; em seguida, cada request encontrada inclui a response correspondente por `x-correlation-id`, e vice-versa. A mensagem acrescentada não precisa de estar dentro do intervalo: a interface indica **Incluída por correlação**, a linha do par e **Fora do intervalo**, quando aplicável. As duas mensagens entram na cópia e exportação, sem duplicados, em ordem cronológica. O índice distingue chamadas sequenciais que reutilizam um ID e não associa chamadas ambíguas ou sem correlação segura.
 
-Alternar Debug total executa a pesquisa com os valores atuais; se houver um filtro inválido, é apresentada a validação e os resultados anteriores mantêm-se até uma pesquisa válida. Paginação, cópia e exportação usam a última pesquisa aplicada. Os filtros continuam a exigir todos os valores numa das mensagens; não combinam critérios repartidos entre request e response.
+Alternar Debug total executa a pesquisa com os valores atuais; se houver um filtro inválido, é apresentada a validação e os resultados anteriores mantêm-se até uma pesquisa válida. Paginação, cópia e exportação usam a última pesquisa aplicada.
 
 Na lista, requests HTTP mostram método e URL, e responses mostram o estado. Ambas têm separadores **Header** e **Body** no modal, com pesquisa local ao bloco exibido.
 
@@ -64,49 +88,15 @@ Ative **Apenas chamadas com erro** para consultar respostas HTTP **400–599**, 
 
 O intervalo é aplicado ao **horário da response**. Cada resultado representa uma chamada, com método, URL, estado e acesso a **Request / Response** no mesmo modal. A request pode estar fora do intervalo e aparece identificada como tal. Respostas sem associação segura mostram **Request não identificada**, sem serem descartadas. A associação consome as requests por `x-correlation-id` na ordem do ficheiro, incluindo respostas de sucesso; IDs reutilizados em sequência são suportados, mas várias requests pendentes com o mesmo ID tornam a associação ambígua e não são emparelhadas por suposição.
 
-Os filtros opcionais devem corresponder integralmente à request **ou** à response, mantendo a dupla como resultado; não combinam critérios repartidos entre ambas. A paginação conta chamadas, não eventos individuais. **Copiar chamada** copia os dois eventos formatados; **Copiar evento** copia o separador Request/Response selecionado. **Copiar resultados** e **Exportar .log** incluem as duplas completas de todas as páginas, em ordem da response, com o texto original e incluindo requests fora do intervalo. Filtros inválidos mantêm a última pesquisa válida e a respetiva exportação.
+A paginação conta chamadas, não eventos individuais. **Copiar chamada** copia os dois eventos formatados; **Copiar evento** copia o separador Request/Response selecionado. **Copiar resultados** e **Exportar .log** incluem as duplas completas de todas as páginas, em ordem da response, com o texto original e incluindo requests fora do intervalo. Filtros inválidos mantêm a última pesquisa válida e a respetiva exportação.
 
-## Filtros opcionais de transação
+## Pesquisa e detalhes
 
-Data e horário permanecem visíveis. O seletor **Adicionar filtro** apresenta apenas os campos ainda não adicionados. Cada campo pode ser removido pelo respetivo botão ×.
-
-| Campo na interface | Campo identificado no log |
-| --- | --- |
-| GUID da transação | `transactionGuid` |
-| ID da transação POS | `POSTransactionID` |
-| Número do ticket | `ticketNumber` |
-| Código do artigo | `articleCode` |
-| Família do artigo | `articleCodeFamily` |
-| Quantidade | `quantity` |
-| Montante total | `totalAmount` |
-| IVA | `vat` |
-| ID do cupão | `discountCouponsId` |
-| Método de pagamento (MOP) | `mopId` |
-| ID de fidelização | `clientLoyalty.id` |
-| Cartão de fidelização | `clientLoyalty.cardId` |
-| Código de fidelização | `clientLoyalty.code` |
-| Campanha | `campaign` |
-| Promoção | `promotion` |
-| Código de barras Continente | `ContinenteBarcode` |
-| Vouchers | `Vouchers` |
-| Cupões Continente | `ContinenteCoupons` |
-| Desconto Continente aplicado | `ContinenteDiscountApplied` |
-
-Os filtros estão organizados por grupos na seleção e nos campos adicionados: **Loyalt** (código, ID e cartão de fidelização, campanha e promoção), **Transação** (GUID, ID POS e número do ticket), **Artigos** (código, família, quantidade e IVA) e **Pagamento** (montante total, cupão e método de pagamento).
-
-O grupo **Continente** reúne código de barras, vouchers, cupões e desconto aplicado. Reconhece propriedades diretas e pares `Key`/`Value`, incluindo representações XML com `#text`. Nos valores Continente, descodifica strings e listas JSON com até oito níveis de codificação: introduza apenas o código, sem aspas ou barras de escape. Vouchers e cupões são pesquisados por código individual exato; o desconto aceita valores decimais, incluindo `0`. Códigos preservam todos os dígitos e zeros iniciais.
-
-Os filtros são combinados com **E**: a mensagem que origina a correspondência tem de estar dentro do intervalo e conter todos os valores indicados. A pesquisa inclui as suas linhas de continuação e acrescenta a request ou response correlacionada. Não reúne campos de eventos diferentes nem inclui outros logs da transação. Dentro de um evento, os campos podem ocorrer em diferentes objetos ou elementos de uma lista; não se exige que pertençam ao mesmo artigo da lista. No modo de erros, aplica-se a regra específica do horário da response descrita acima.
+O seletor de filtros adicionais está vazio e desativado, preparado para uma futura reformulação. O catálogo e a lógica dos filtros anteriores foram removidos.
 
 Cada bloco iniciado por `Request Header:` com um `Timestamp` válido é tratado como um evento próprio, identificado como **REQUEST** na coluna **Tipo**. O horário do cabeçalho da requisição é usado na pesquisa temporal; a coluna **Nível** continua reservada a `DEBUG`, `INFO`, `WARN` e outros níveis do log. No modal de um pedido, os botões **Header** e **Body** mostram cada secção separadamente; **Copiar evento** continua a copiar o bloco completo.
 
 A barra **Pesquisar neste bloco** procura texto apenas no conteúdo visível do modal, sem distinguir maiúsculas de minúsculas. As ocorrências ficam destacadas e podem ser percorridas pelas setas ou com **Enter** / **Shift + Enter**, com deslocamento automático até ao resultado. **Ctrl + F** (ou **Cmd + F**) dentro do modal foca esta pesquisa. Ao mudar de secção ou de vista, os resultados são recalculados.
-
-As comparações são exatas, sem pesquisa por fragmentos. As chaves e os códigos não distinguem maiúsculas de minúsculas (`ArticleCode` e `articleCode` são reconhecidos). O `LoyaltyId` no corpo da requisição também corresponde ao filtro **ID de fidelização**. IDs e códigos preservam zeros iniciais e todos os dígitos, mesmo quando o log contém identificadores numéricos acima do limite de precisão de JavaScript. Quantidade, montante e IVA aceitam ponto ou vírgula decimal: `30`, `30.0` e `30,00` correspondem ao mesmo valor. A comparação decimal não usa arredondamentos de floating point.
-
-A extração percorre JSON válido em mensagens, Request/Response, objetos e listas aninhados. Também reconhece JSON codificado dentro de strings, até três níveis. JSON inválido/incompleto não gera correspondências de campos. O GUID é ainda reconhecido em `transactionGuid=…` numa URL ou em `transaction guid = …` no texto. `Id` e `CardId` genéricos não são confundidos com fidelização: além de `clientLoyalty`, é reconhecida a variante explícita `PartnerInfo.Transaction.Id/CardId` do serviço interno.
-
-Um filtro adicionado sem valor apresenta uma validação, em vez de ser ignorado. A extração é feita no worker e reutilizada entre pesquisas. Cópia e exportação usam todos os resultados da última pesquisa aplicada, sem alterações ao conteúdo original; filtros ainda por aplicar não mudam o download.
 
 ## Estado da análise
 
@@ -228,18 +218,15 @@ O filtro converte os quatro campos usando a mesma escala. O limite inicial usa `
 | `components/Header.tsx` | Identidade da aplicação e nome do ficheiro |
 | `components/FileUpload.tsx` | Seleção, drag-and-drop, substituição e erros de leitura |
 | `components/DateTimeFilter.tsx` | Quatro campos temporais, Pesquisar e Limpar filtros |
-| `components/TransactionFilters.tsx` | Seletor de campos opcionais, valores e remoção individual |
 | `components/LogViewer.tsx` | Resultados cronológicos e paginação de 100 eventos |
 | `components/LogEventItem.tsx` | Metadados, expansão do texto original e cópia individual |
 | `services/logFilter.ts` | Validação do intervalo, limites inclusivos e ordenação estável |
-| `services/transactionFilter.ts` | Extração de campos, validação e comparação exata combinada com E |
-| `types/transactionFilters.types.ts` | Catálogo e tipos dos dez filtros opcionais |
 | `services/logExporter.ts` | Composição do texto e nome de exportação, sem metadados artificiais |
 | `workers/log.worker.ts` | Leitura, parsing, ordenação, pesquisa e serialização fora da thread da interface |
 | `services/logWorkerClient.ts` | Pedidos assíncronos e gestão do ciclo de vida do worker |
 | `tests/e2e/` | Fluxo de upload, pesquisa, expansão e exportação com Playwright |
 
-React, Vite, CSS responsivo e Playwright integram esta entrega. A pesquisa temporal foi complementada pelos dez filtros de transação pedidos; não há dashboards, gráficos ou filtros por nível. A lógica de parsing, pesquisa e composição da exportação permanece independente do React. Não há bibliotecas de componentes ou fontes remotas.
+React, Vite, CSS responsivo e Playwright integram esta entrega. A pesquisa utiliza o intervalo temporal; não há dashboards, gráficos ou filtros por nível. A lógica de parsing, pesquisa e composição da exportação permanece independente do React. Não há bibliotecas de componentes ou fontes remotas.
 
 Na exportação, cada segmento `raw` e os seus terminadores são preservados. **Único caso de separação adicional:** se o antigo último evento não tiver terminador e a ordenação o colocar antes de outro, insere-se uma quebra de linha entre ambos para não colar os cabeçalhos. Usa-se o primeiro estilo de quebra encontrado nesse evento ou LF se não existir nenhum. Não são acrescentados cabeçalhos, comentários ou metadados ao ficheiro exportado.
 

@@ -1,3 +1,4 @@
+import { filterPollingEvents, EMPTY_POLLING_FILTERS } from '../services/pollingFilter';
 import { parseLog } from '../services/logParser';
 import { filterEvents, getSuggestedRange, sortEvents } from '../services/logFilter';
 import { serializeEvents } from '../services/logExporter';
@@ -15,6 +16,7 @@ let results: LogEvent[] = [];
 let errorCalls: HttpErrorCall[] = [];
 let errorResults: HttpErrorCall[] = [];
 let errorsOnly = false;
+let format: 'comserver' | 'polling' = 'comserver';
 
 function pageView(requestedPage = 1): ResultPage {
   const total = errorsOnly ? errorResults.length : results.length;
@@ -40,15 +42,16 @@ async function execute(request: WorkerRequest): Promise<WorkerResult> {
       } catch {
         throw new Error('A codificação do ficheiro não é UTF-8. Guarde uma cópia em UTF-8 e volte a importar.');
       }
-      const parsed = parseLog(text);
+      format = request.format ?? 'comserver';
+      const parsed = parseLog(text, format);
       events = sortEvents(parsed.events);
       const http = selectJsonHttpEvents(parsed.events);
       httpEvents = sortEvents(http.events);
       httpPairs = buildHttpPairs(parsed.events);
       errorCalls = buildHttpErrorCalls(parsed.events, httpPairs);
       errorResults = errorCalls;
-      errorsOnly = request.errorsOnly;
-      results = request.debugTotal ? events : httpEvents;
+      errorsOnly = format === 'comserver' && request.errorsOnly;
+      results = format === 'polling' || request.debugTotal ? events : httpEvents;
       return {
         kind: 'loaded', view: pageView(), bounds: getSuggestedRange(events),
         preamble: parsed.preamble.length > 0,
@@ -58,9 +61,10 @@ async function execute(request: WorkerRequest): Promise<WorkerResult> {
     }
     case 'search': {
       // Só substituir a vista aplicada depois de validar e concluir a pesquisa.
-      if (request.errorsOnly) errorResults = filterHttpErrorCalls(errorCalls, request.range, request.filters);
-      else results = filterEvents(request.debugTotal ? events : httpEvents, request.range, request.filters, httpPairs);
-      errorsOnly = request.errorsOnly;
+      if (format === 'polling') results = filterPollingEvents(events, request.range, request.pollingFilters ?? EMPTY_POLLING_FILTERS);
+      else if (request.errorsOnly) errorResults = filterHttpErrorCalls(errorCalls, request.range, request.transactionFilters);
+      else results = filterEvents(request.debugTotal ? events : httpEvents, request.range, httpPairs, request.transactionFilters);
+      errorsOnly = format === 'comserver' && request.errorsOnly;
       return { kind: 'view', view: pageView() };
     }
     case 'page':

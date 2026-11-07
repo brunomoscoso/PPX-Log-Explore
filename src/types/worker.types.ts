@@ -1,6 +1,7 @@
+import type { TransactionFilterValues } from '../services/transactionFilter';
+import type { PollingFilters } from '../services/pollingFilter';
 import type { DateTimeRange } from '../services/logFilter';
 import type { LogEvent } from './log.types';
-import type { TransactionFilter } from './transactionFilters.types';
 import type { HttpErrorCall } from '../services/httpErrors';
 
 export const PAGE_SIZE = 100;
@@ -14,8 +15,8 @@ export interface ResultPage {
 }
 
 export type WorkerCommand =
-  | { command: 'load'; file: File; debugTotal: boolean; errorsOnly: boolean }
-  | { command: 'search'; range: DateTimeRange; filters: TransactionFilter[]; debugTotal: boolean; errorsOnly: boolean }
+  | { command: 'load'; file: File; format?: 'comserver' | 'polling'; debugTotal: boolean; errorsOnly: boolean }
+  | { command: 'search'; range: DateTimeRange; pollingFilters?: PollingFilters; transactionFilters?: TransactionFilterValues; debugTotal: boolean; errorsOnly: boolean }
   | { command: 'page'; page: number }
   | { command: 'export' };
 

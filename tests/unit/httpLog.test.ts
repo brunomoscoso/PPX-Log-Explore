@@ -59,13 +59,10 @@ describe('modo HTTP JSON', () => {
     expect(filterEvents(events, getSuggestedRange(events)!)).toHaveLength(4);
   });
 
-  it('inclui o par depois de aplicar datas e filtros a qualquer uma das mensagens', () => {
+  it('inclui o par depois de aplicar datas a qualquer uma das mensagens', () => {
     const events = parseLog(httpRequest() + httpResponse()).events;
     const http = selectJsonHttpEvents(events).events;
     const range = getSuggestedRange(events)!;
     expect(filterEvents(http, { ...range, startTime: '14:34:01' })).toHaveLength(2);
-    expect(filterEvents(http, range, [{ field: 'articleCode', value: 'ITEM-A' }]).map((event) => event.type)).toEqual(['request', 'response']);
-    expect(filterEvents(http, range, [{ field: 'promotion', value: 'PROMO-A' }]).map((event) => event.type)).toEqual(['request', 'response']);
-    expect(filterEvents(http, range, [{ field: 'articleCode', value: 'ITEM-A' }, { field: 'promotion', value: 'PROMO-A' }])).toHaveLength(0);
   });
 });

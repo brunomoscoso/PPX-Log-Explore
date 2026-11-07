@@ -44,7 +44,7 @@
 .level-error { color: #ffadb6; background: #3e2330; border-color: #633747; }
 .level-fatal { color: #f4b9e1; background: #49223f; border-color: #76395f; }
 .level-other { color: #c4d0df; background: #273346; border-color: #3d4c63; }
-.event-modal { width: min(1200px, calc(100vw - 48px)); height: min(780px, calc(100dvh - 64px)); max-width: none; max-height: none; margin: auto; padding: 0; border: 1px solid #435775; border-radius: 10px; background: #111b2b; color: #dce3ef; overflow: hidden; box-shadow: 0 24px 90px #0008; }
+.event-modal { width: min(1600px, calc(100vw - 40px)); height: calc(100dvh - 40px); max-width: none; max-height: none; margin: auto; padding: 0; border: 1px solid #435775; border-radius: 10px; background: #111b2b; color: #dce3ef; overflow: hidden; box-shadow: 0 24px 90px #0008; }
 .event-modal::backdrop { background: #030812bc; backdrop-filter: blur(3px); }
 .event-modal-content { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 24px; }
 .event-modal-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; flex-shrink: 0; }
@@ -64,8 +64,8 @@
 .modal-search-count { color: #a8bfdf; font-size: 11px; white-space: nowrap; }
 .modal-search-controls { display: flex; gap: 4px; }
 .modal-search-controls .button { min-width: 32px; padding: 5px 8px; }
-.event-modal pre mark { color: #fff0b3; background: #61501d; border-radius: 2px; }
-.event-modal pre mark.search-match-active { color: #111b2b; background: #ffd166; outline: 1px solid #ffe6a3; }
+.log-search-match, .event-modal pre mark { color: #25200b; background: #fff3a3; border-radius: 2px; }
+.event-modal pre mark.search-match-active { color: #111b2b; background: #ffe580; outline: 1px solid #d5ac30; }
 .event-modal pre { flex: 1; min-height: 0; font: 13px/1.8 var(--mono); color: #d1dcee; margin: 0; padding: 18px; white-space: pre; overflow: auto; border: 1px solid #2c3b52; border-radius: 5px; background: #090f1b; tab-size: 4; scrollbar-color: #3b4b65 #111927; }
 .modal-footer { display: flex; justify-content: space-between; gap: 12px; padding-top: 14px; color: var(--muted); font-size: 11px; line-height: 1.5; flex-shrink: 0; }
 .empty-state { min-height: 335px; max-width: 540px; margin: auto; padding: 60px 24px; display: flex; flex-direction: column; align-items: center; text-align: center; justify-content: center; }

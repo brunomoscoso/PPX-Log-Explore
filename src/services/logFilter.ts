@@ -1,7 +1,6 @@
+import { matchesTransactionFilters, type TransactionFilterValues } from './transactionFilter';
 import type { LogEvent } from '../types/log.types';
 import { parseLogTimestamp } from './logTimestamp';
-import type { TransactionFilter } from '../types/transactionFilters.types';
-import { createTransactionMatcher } from './transactionFilter';
 import { buildHttpPairs } from './httpPairs';
 
 export interface DateTimeRange {
@@ -33,10 +32,9 @@ export function sortEvents(events: readonly LogEvent[]): LogEvent[] {
   return [...events].sort((a, b) => a.timestamp - b.timestamp || a.startOffset - b.startOffset);
 }
 
-export function filterEvents(events: readonly LogEvent[], range: DateTimeRange, filters: readonly TransactionFilter[] = [], pairs: ReadonlyMap<string, LogEvent> = buildHttpPairs(events)): LogEvent[] {
+export function filterEvents(events: readonly LogEvent[], range: DateTimeRange, pairs: ReadonlyMap<string, LogEvent> = buildHttpPairs(events), filters: TransactionFilterValues = {}): LogEvent[] {
   const { start, end } = parseRange(range);
-  const matches = createTransactionMatcher(filters);
-  const matched = events.filter((event) => event.timestamp >= start && event.timestamp <= end && matches(event));
+  const matched = events.filter((event) => event.timestamp >= start && event.timestamp <= end && matchesTransactionFilters(pairs.has(event.id) ? [event, pairs.get(event.id)!] : [event], filters));
   const matchedIds = new Set(matched.map((event) => event.id));
   const results = new Map(matched.map((event) => [event.id, event]));
   for (const event of matched) {

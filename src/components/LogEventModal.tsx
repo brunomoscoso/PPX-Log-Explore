@@ -7,6 +7,7 @@ import { splitHttpSections } from '../services/httpLog';
 import type { HttpErrorCall } from '../services/httpErrors';
 
 interface Props {
+  searchText?: string;
   event: LogEvent;
   errorCall?: HttpErrorCall;
   disabled: boolean;
@@ -15,18 +16,21 @@ interface Props {
   onDismiss: () => void;
 }
 
-export function LogEventModal({ event: initialEvent, errorCall, disabled, feedback, onCopy, onDismiss }: Props) {
-  const [callPart, setCallPart] = useState<'request' | 'response'>('response');
+export function LogEventModal({ event: initialEvent, errorCall, searchText = '', disabled, feedback, onCopy, onDismiss }: Props) {
+  const [callPart, setCallPart] = useState<'request' | 'response'>(() => searchText && errorCall?.request?.raw.toLowerCase().includes(searchText.toLowerCase()) && !initialEvent.raw.toLowerCase().includes(searchText.toLowerCase()) ? 'request' : 'response');
   const event = errorCall && callPart === 'request' && errorCall.request ? errorCall.request : initialEvent;
   const dialog = useRef<HTMLDialogElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const activeMatch = useRef<HTMLElement>(null);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(searchText);
   const [matchIndex, setMatchIndex] = useState(0);
   const startedOutside = useRef(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [copyRequested, setCopyRequested] = useState(false);
-  const [requestSection, setRequestSection] = useState<'header' | 'body'>('header');
+  const [requestSection, setRequestSection] = useState<'header' | 'body'>(() => {
+    const sections = event.http ? splitHttpSections(event.message) : event.type === 'request' ? splitRequestSections(event.raw) : {};
+    return searchText && !sections.header?.toLowerCase().includes(searchText.toLowerCase()) && sections.body?.toLowerCase().includes(searchText.toLowerCase()) ? 'body' : 'header';
+  });
   const formatted = useMemo(() => formatEventForDisplay(event), [event]);
   const formattedCall = useMemo(() => errorCall
     ? [errorCall.request, errorCall.response].filter((item): item is LogEvent => item !== undefined).map(formatEventForDisplay).join('\n')

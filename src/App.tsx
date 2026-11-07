@@ -1,3 +1,6 @@
+import type { TransactionFilterValues } from './services/transactionFilter';
+import type { ReactNode } from 'react';
+import { EMPTY_POLLING_FILTERS, type PollingFilters } from './services/pollingFilter';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Header } from './components/Header';
 import { FileUpload } from './components/FileUpload';
@@ -5,8 +8,6 @@ import { DateTimeFilter } from './components/DateTimeFilter';
 import { LogViewer } from './components/LogViewer';
 import { EMPTY_RANGE, parseRange } from './services/logFilter';
 import type { DateTimeRange } from './services/logFilter';
-import type { TransactionFilter } from './types/transactionFilters.types';
-import { validateTransactionFilters } from './services/transactionFilter';
 import { copyText, downloadLog, exportFilename } from './services/logExporter';
 import { LogWorkerClient } from './services/logWorkerClient';
 import type { ResultPage } from './types/worker.types';
@@ -18,6 +19,22 @@ const activityLabels: Record<Activity, string> = {
 };
 
 export default function App() {
+  const [tab, setTab] = useState<'comserver' | 'polling'>('comserver');
+  const tabs = <nav className="log-tabs" aria-label="Tipo de log">
+    {(['comserver', 'polling'] as const).map((value) => <button key={value} type="button"
+      className={`button ${tab === value ? 'primary' : 'secondary'}`} aria-pressed={tab === value}
+      onClick={() => setTab(value)}>{value === 'comserver' ? 'ComServer' : 'PollingV6'}</button>)}
+  </nav>;
+  return <>{(['comserver', 'polling'] as const).map((format) =>
+    <LogWorkspace key={format} format={format} active={tab === format} tabs={tabs} />)}</>;
+}
+
+function LogWorkspace({ format, active, tabs }: { format: 'comserver' | 'polling'; active: boolean; tabs: ReactNode }) {
+  const polling = format === 'polling';
+  const [transactionFilters, setTransactionFilters] = useState<TransactionFilterValues>({});
+  const [appliedTransactionFilters, setAppliedTransactionFilters] = useState<TransactionFilterValues>({});
+  const [pollingFilters, setPollingFilters] = useState<PollingFilters>(EMPTY_POLLING_FILTERS);
+  const [appliedPollingFilters, setAppliedPollingFilters] = useState<PollingFilters>(EMPTY_POLLING_FILTERS);
   const client = useRef<LogWorkerClient | null>(null);
   const working = useRef(false);
   const [activity, setActivity] = useState<Activity | null>(null);
@@ -25,8 +42,6 @@ export default function App() {
   const [bounds, setBounds] = useState<DateTimeRange | null>(null);
   const [range, setRange] = useState<DateTimeRange>(EMPTY_RANGE);
   const [appliedRange, setAppliedRange] = useState<DateTimeRange>(EMPTY_RANGE);
-  const [filters, setFilters] = useState<TransactionFilter[]>([]);
-  const [appliedFilters, setAppliedFilters] = useState<TransactionFilter[]>([]);
   const [debugTotal, setDebugTotal] = useState(false);
   const [appliedDebugTotal, setAppliedDebugTotal] = useState(false);
   const [errorsOnly, setErrorsOnly] = useState(false);
@@ -70,15 +85,17 @@ export default function App() {
       setView(null);
       setRange(EMPTY_RANGE);
       setAppliedRange(EMPTY_RANGE);
-      setFilters([]);
-      setAppliedFilters([]);
       setFilterError('');
       setWarning('');
       const nextClient = new LogWorkerClient();
       client.current = nextClient;
-      const result = await nextClient.request({ command: 'load', file, debugTotal, errorsOnly });
+      const result = await nextClient.request({ command: 'load', file, format, debugTotal, errorsOnly });
       if (result.kind !== 'loaded') throw new Error('Não foi possível carregar o ficheiro. Tente novamente.');
       setFilename(file.name);
+      setTransactionFilters({});
+      setAppliedTransactionFilters({});
+      setPollingFilters(EMPTY_POLLING_FILTERS);
+      setAppliedPollingFilters(EMPTY_POLLING_FILTERS);
       setView(result.view);
       setAppliedDebugTotal(debugTotal);
       setAppliedErrorsOnly(errorsOnly);
@@ -98,22 +115,22 @@ export default function App() {
     });
   };
 
-  const search = (selectedRange = range, selectedFilters = filters, selectedDebugTotal = debugTotal, selectedErrorsOnly = errorsOnly) => {
+  const search = (selectedRange = range, selectedDebugTotal = debugTotal, selectedErrorsOnly = errorsOnly, selectedPollingFilters = pollingFilters, selectedTransactionFilters = transactionFilters) => {
     if (!bounds || !client.current || working.current) return;
     try {
       parseRange(selectedRange);
-      validateTransactionFilters(selectedFilters);
       setFilterError('');
     } catch (failure) {
       setFilterError((failure as Error).message);
       return;
     }
     void runTask('searching', async () => {
-      const result = await client.current!.request({ command: 'search', range: selectedRange, filters: selectedFilters, debugTotal: selectedDebugTotal, errorsOnly: selectedErrorsOnly });
+      const result = await client.current!.request({ command: 'search', transactionFilters: selectedTransactionFilters, range: selectedRange, pollingFilters: selectedPollingFilters, debugTotal: selectedDebugTotal, errorsOnly: selectedErrorsOnly });
       if (result.kind === 'view') {
         setView(result.view);
         setAppliedRange(selectedRange);
-        setAppliedFilters(selectedFilters);
+        setAppliedTransactionFilters(selectedTransactionFilters);
+        setAppliedPollingFilters(selectedPollingFilters);
         setAppliedDebugTotal(selectedDebugTotal);
         setAppliedErrorsOnly(selectedErrorsOnly);
         setGeneration((value) => value + 1);
@@ -122,6 +139,14 @@ export default function App() {
       }
     });
   };
+
+  useEffect(() => {
+    const text = polling ? pollingFilters.text : transactionFilters.text;
+    const appliedText = polling ? appliedPollingFilters.text : appliedTransactionFilters.text;
+    if (!active || !bounds || activity || (text ?? '') === (appliedText ?? '')) return;
+    const timer = window.setTimeout(() => search(), 250);
+    return () => window.clearTimeout(timer);
+  }, [polling, active, bounds, activity, pollingFilters.text, appliedPollingFilters.text, transactionFilters.text, appliedTransactionFilters.text, range, debugTotal, errorsOnly]);
 
   const changePage = (page: number) => {
     void runTask('paging', async () => {
@@ -155,24 +180,25 @@ export default function App() {
   };
 
   const busy = activity !== null;
+  if (!active) return null;
   return <>
     <Header filename={filename} />
     <main>
+      {tabs}
       <FileUpload filename={filename} busy={busy} onFile={loadFile} onError={setError} />
       {error && <div className="message error-message" role="alert">{error}</div>}
       {warning && <div className="message warning-message" role="note">{warning}</div>}
-      <DateTimeFilter range={range} filters={filters} disabled={!bounds || busy} searching={activity === 'searching'}
-        debugTotal={debugTotal} modeDisabled={busy} onDebugTotalChange={(next) => { setDebugTotal(next); search(range, filters, next); }}
-        errorsOnly={errorsOnly} onErrorsOnlyChange={(next) => { setErrorsOnly(next); search(range, filters, debugTotal, next); }}
-        dirty={!!bounds && (errorsOnly !== appliedErrorsOnly || debugTotal !== appliedDebugTotal || JSON.stringify(range) !== JSON.stringify(appliedRange) || JSON.stringify(filters) !== JSON.stringify(appliedFilters))} error={filterError}
-        onFiltersChange={(next) => { setFilters(next); setFilterError(''); }}
+      <DateTimeFilter textSearchDisabled={!bounds || activity === 'loading'} onPollingTextChange={(text) => setPollingFilters(current => ({ ...current, text }))} transactionFilters={transactionFilters} onTransactionChange={setTransactionFilters} polling={polling} pollingFilters={pollingFilters} onPollingChange={(next) => { setPollingFilters(next); search(range, debugTotal, errorsOnly, next); }} range={range} disabled={!bounds || busy} searching={activity === 'searching'}
+        debugTotal={debugTotal} modeDisabled={busy} onDebugTotalChange={(next) => { setDebugTotal(next); search(range, next); }}
+        errorsOnly={errorsOnly} onErrorsOnlyChange={(next) => { setErrorsOnly(next); search(range, debugTotal, next); }}
+        dirty={!!bounds && (JSON.stringify(transactionFilters) !== JSON.stringify(appliedTransactionFilters) || JSON.stringify(pollingFilters) !== JSON.stringify(appliedPollingFilters) || errorsOnly !== appliedErrorsOnly || debugTotal !== appliedDebugTotal || JSON.stringify(range) !== JSON.stringify(appliedRange))} error={filterError}
         onChange={(next) => { setRange(next); setFilterError(''); }} onSearch={() => search()}
-        onReset={() => { if (bounds) { setRange(bounds); setFilters([]); search(bounds, []); } }} />
+        onReset={() => { if (bounds) { setRange(bounds); setTransactionFilters({}); setPollingFilters(EMPTY_POLLING_FILTERS); search(bounds, debugTotal, errorsOnly, EMPTY_POLLING_FILTERS, {}); } }} />
       <div className="status-line" role="status" aria-live="polite">
         {busy && <span className="spinner" aria-hidden="true" />}
         <span>{activity ? activityLabels[activity] : notice || 'Os ficheiros são processados apenas no seu navegador.'}</span>
       </div>
-      <LogViewer view={view} loaded={filename !== null} recognizable={bounds !== null} busy={busy} generation={generation} feedback={error || notice}
+      <LogViewer searchText={(polling ? appliedPollingFilters.text : appliedTransactionFilters.text) ?? ''} polling={polling} view={view} loaded={filename !== null} recognizable={bounds !== null} busy={busy} generation={generation} feedback={error || notice}
         onPage={changePage} onCopyEvent={copyEvent} onCopyResults={() => exportResults(true)} onExport={() => exportResults(false)} />
       <footer className="app-footer"><span>PPX Log Explorer</span><span>Processamento local · Sem envio ou armazenamento de logs</span></footer>
     </main>

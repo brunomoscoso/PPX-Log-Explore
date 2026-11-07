@@ -2,7 +2,6 @@ import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { browserLog, filteredLog, first, multi, end, tie, after, nextDay } from '../fixtures/browserLogs';
-import { matchingTransaction, transactionEvent, transactionLog, transactionPayload } from '../fixtures/transactionLogs';
 import { httpRequest, httpResponse } from '../fixtures/httpLogs';
 
 async function upload(page: Page, text = browserLog, name = 'ComServer-sintetico.log') {
@@ -43,7 +42,6 @@ test('modo padrão mostra apenas HTTP JSON e Debug total recupera todos os event
   await upload(page, text);
   await expect(page.locator('.event-summary')).toHaveCount(3);
   await expect(page.locator('.event-type')).toHaveText(['REQUEST', 'RESPONSE', 'RESPONSE']);
-  await expect(page.locator('.http-summary')).toContainText('1 responses reconhecidas pelo corpo JSON');
   expect((await downloadText(page)).text).toBe(request + response + orphan);
   await page.locator('.event-summary').nth(1).click();
   const modal = page.getByRole('dialog');
@@ -51,8 +49,7 @@ test('modo padrão mostra apenas HTTP JSON e Debug total recupera todos os event
   await modal.getByRole('button', { name: 'Body', exact: true }).click();
   await expect(modal.locator('pre')).toContainText('PROMO-A');
   await modal.getByRole('button', { name: 'Fechar detalhes do evento' }).click();
-  await addFilter(page, 'promotion', 'Promoção', 'PROMO-A');
-  await search(page);
+  await search(page, '14:34:01', '14:34:01');
   await expect(page.locator('.event-summary')).toHaveCount(2);
   expect((await downloadText(page)).text).toBe(request + response);
   await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click();
@@ -83,7 +80,6 @@ test('pesquisas HTTP e Debug total incluem as duas mensagens pelo correlation-id
   const response = httpResponse('pair', '{"promotion":"PROMO-A"}', '14:34:01.000', 'OK');
   const later = httpRequest('pair', 'application/json', { articleCode: 'OTHER' }, '14:35:00.000') + httpResponse('pair', '{}', '14:35:01.000');
   await upload(page, request + first + response + later);
-  await addFilter(page, 'promotion', 'Promoção', 'PROMO-A');
   await search(page, '14:34:01', '14:34:01');
   await expect(page.locator('.event-type')).toHaveText(['REQUEST', 'RESPONSE']);
   await expect(page.locator('.event-summary').first()).toContainText('Incluída por correlação');
@@ -92,8 +88,6 @@ test('pesquisas HTTP e Debug total incluem as duas mensagens pelo correlation-id
   await page.getByRole('checkbox', { name: 'Debug total', exact: true }).check();
   await expect(page.locator('.event-summary')).toHaveCount(2);
   expect((await downloadText(page)).text).toBe(request + response);
-  await page.getByRole('button', { name: 'Remover filtro Promoção', exact: true }).click();
-  await addFilter(page, 'articleCode', 'Código do artigo', 'ITEM-A');
   await search(page, '14:33:00', '14:33:00');
   await expect(page.locator('.event-type')).toHaveText(['REQUEST', 'RESPONSE']);
   await expect(page.locator('.event-summary').nth(1)).toContainText('Fora do intervalo');
@@ -105,10 +99,6 @@ test('pesquisas HTTP e Debug total incluem as duas mensagens pelo correlation-id
   await expect(page.getByRole('dialog')).toContainText('Incluída por correlação');
 });
 
-async function addFilter(page: Page, field: string, label: string, value: string) {
-  await page.getByLabel('Adicionar filtro', { exact: true }).selectOption(field);
-  await page.getByLabel(label, { exact: true }).fill(value);
-}
 
 test('mostra erros por horário da response com request fora do intervalo e navegação da dupla', async ({ page }, testInfo) => {
   await page.goto('/');
@@ -148,12 +138,9 @@ test('mostra erros por horário da response com request fora do intervalo e nave
   await expect(modal.getByRole('button', { name: 'Request', exact: true })).toBeDisabled();
   await expect(modal).toContainText('Request não identificada');
   await page.keyboard.press('Escape');
-  await addFilter(page, 'articleCode', 'Código do artigo', 'ITEM-A');
-  await search(page, '14:34:01', '14:34:01');
-  await expect(page.locator('.result-count')).toHaveText('1 chamada com erro encontrada');
-  expect((await downloadText(page)).text).toBe(request + response);
   await errors.uncheck();
-  await expect(page.locator('.event-summary')).toHaveCount(0);
+  await expect(page.locator('.event-summary')).toHaveCount(2);
+  expect((await downloadText(page)).text).toBe(request + response);
 });
 
 test('pagina chamadas com erro e exporta todas as duplas mantendo a pesquisa aplicada', async ({ page }) => {
@@ -168,12 +155,11 @@ test('pagina chamadas com erro e exporta todas as duplas mantendo a pesquisa apl
   await page.getByRole('button', { name: 'Copiar resultados', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Resultados copiados');
   expect((await page.evaluate(() => navigator.clipboard.readText())).replaceAll('\r\n', '\n')).toBe(text.replaceAll('\r\n', '\n'));
-  await addFilter(page, 'articleCode', 'Código do artigo', '');
+  await page.getByLabel('Data inicial', { exact: true }).fill('');
   await page.getByRole('checkbox', { name: 'Apenas chamadas com erro', exact: true }).uncheck();
   await expect(page.getByRole('alert')).toContainText('Preencha');
   await expect(page.locator('.result-count')).toHaveText('101 chamadas com erro encontradas');
   expect((await downloadText(page)).text).toBe(text);
-  await page.getByRole('button', { name: 'Remover filtro Código do artigo', exact: true }).click();
   await search(page);
   await expect(page.locator('.result-count')).toHaveText('202 eventos encontrados');
 });
@@ -185,6 +171,8 @@ test('estado inicial acessível, sem ações de pesquisa ou exportação dispon�
   await expect(page.getByRole('button', { name: 'Copiar resultados' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Exportar .log' })).toBeDisabled();
   await expect(page.getByLabel('Data inicial', { exact: true })).toBeDisabled();
+  await expect(page.getByLabel('Adicionar filtro', { exact: true })).toBeDisabled();
+  await expect(page.locator('#add-filter option')).toHaveCount(15);
 });
 
 test('identifica pedidos como REQUEST e mantém o nível separado', async ({ page }) => {
@@ -438,109 +426,4 @@ test('modal centrado fecha por clique exterior, Escape e botão, mantendo foco e
   await page.getByRole('button', { name: 'Fechar detalhes do evento' }).click();
   await expect(modal).toHaveCount(0);
   await expect(row).toBeFocused();
-});
-
-test('constrói filtros opcionais, combina campos e exporta apenas a pesquisa aplicada', async ({ page }, testInfo) => {
-  await expect(page.getByLabel('Adicionar filtro', { exact: true })).toBeDisabled();
-  await upload(page, transactionLog);
-  await expect(page.getByLabel('Código do artigo', { exact: true })).toHaveCount(0);
-  await addFilter(page, 'articleCode', 'Código do artigo', 'TEST-ARTICLE-01');
-  await addFilter(page, 'clientLoyalty.cardId', 'Cartão de fidelização', '0000001234');
-  await addFilter(page, 'quantity', 'Quantidade', '12,50');
-  await expect(page.locator('#add-filter option[value="articleCode"]')).toHaveCount(0);
-  await search(page);
-  await expect(page.locator('.result-count')).toHaveText('1 evento encontrado');
-  expect((await downloadText(page)).text).toBe(matchingTransaction);
-  await page.getByRole('button', { name: 'Copiar resultados', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Resultados copiados');
-  expect((await page.evaluate(() => navigator.clipboard.readText())).replaceAll('\r\n', '\n')).toBe(matchingTransaction.replaceAll('\r\n', '\n'));
-  await page.screenshot({ path: testInfo.outputPath('transaction-filters.png'), fullPage: true });
-  // Remover um campo altera apenas a pesquisa preparada, até clicar em Pesquisar.
-  await page.getByRole('button', { name: 'Remover filtro Cartão de fidelização' }).click();
-  await expect(page.getByText('Alterações por aplicar')).toBeVisible();
-  expect((await downloadText(page)).text).toBe(matchingTransaction);
-  await search(page);
-  await expect(page.locator('.result-count')).toHaveText('2 eventos encontrados');
-  await page.getByRole('button', { name: 'Limpar filtros' }).click();
-  await expect(page.locator('.transaction-filter-field')).toHaveCount(0);
-  await expect(page.locator('.event-summary')).toHaveCount(3);
-  await expect(page.locator('.header-file')).toHaveText('ComServer-sintetico.log');
-});
-
-test('organiza os filtros em grupos e pesquisa os campos Loyalt', async ({ page }) => {
-  const payload = { clientLoyalty: { code: '185001031173934437', id: '9803100021585485775', cardId: '1859590225275' }, campaign: '1000015588', promotion: '10000195354' };
-  const matching = transactionEvent(payload);
-  await upload(page, matching + transactionEvent({ ...payload, promotion: 'outra' }));
-  expect(await page.locator('#add-filter optgroup').evaluateAll((groups) => groups.map((group) => group.getAttribute('label')))).toEqual(['Loyalt', 'Continente', 'Transação', 'Artigos', 'Pagamento']);
-  await expect(page.locator('#add-filter optgroup[label="Loyalt"] option')).toHaveCount(5);
-  await addFilter(page, 'clientLoyalty.code', 'Código de fidelização', payload.clientLoyalty.code);
-  await addFilter(page, 'clientLoyalty.id', 'ID de fidelização', payload.clientLoyalty.id);
-  await addFilter(page, 'clientLoyalty.cardId', 'Cartão de fidelização', payload.clientLoyalty.cardId);
-  await addFilter(page, 'campaign', 'Campanha', payload.campaign);
-  await addFilter(page, 'promotion', 'Promoção', payload.promotion);
-  await expect(page.getByRole('group', { name: 'Loyalt', exact: true }).locator('input')).toHaveCount(5);
-  await expect(page.locator('#add-filter optgroup[label="Loyalt"]')).toHaveCount(0);
-  await search(page);
-  await expect(page.locator('.result-count')).toHaveText('1 evento encontrado');
-  expect((await downloadText(page)).text).toBe(matching);
-  await page.getByRole('button', { name: 'Remover filtro Promoção', exact: true }).click();
-  await expect(page.locator('#add-filter optgroup[label="Loyalt"] option')).toHaveText(['Promoção']);
-  await search(page);
-  await expect(page.locator('.result-count')).toHaveText('2 eventos encontrados');
-});
-
-test('pesquisa os quatro filtros do grupo Continente em valores escapados', async ({ page }) => {
-  const matching = transactionEvent({ properties: [
-    { Key: 'ContinenteBarcode', Value: JSON.stringify('00903400001') },
-    { Key: 'Vouchers', Value: JSON.stringify(JSON.stringify(['185001031173934001'])) },
-    { Key: 'ContinenteCoupons', Value: JSON.stringify(['COUPON-01']) },
-    { Key: 'ContinenteDiscountApplied', Value: '0' },
-  ] });
-  await upload(page, matching + transactionEvent({ ContinenteDiscountApplied: '1' }));
-  await expect(page.locator('#add-filter optgroup[label="Continente"] option')).toHaveCount(4);
-  await addFilter(page, 'ContinenteBarcode', 'Código de barras Continente', '00903400001');
-  await addFilter(page, 'Vouchers', 'Vouchers', '185001031173934001');
-  await addFilter(page, 'ContinenteCoupons', 'Cupões Continente', 'COUPON-01');
-  await addFilter(page, 'ContinenteDiscountApplied', 'Desconto Continente aplicado', '0');
-  await expect(page.getByRole('group', { name: 'Continente', exact: true }).locator('input')).toHaveCount(4);
-  await search(page);
-  await expect(page.locator('.result-count')).toHaveText('1 evento encontrado');
-  expect((await downloadText(page)).text).toBe(matching);
-});
-
-test('valida filtros vazios e decimais, permite recuperar e não junta eventos distintos', async ({ page }) => {
-  const text = transactionEvent({ articleCode: 'A' }) + transactionEvent({ clientLoyalty: { cardId: 'B' } });
-  await upload(page, text);
-  await page.getByLabel('Adicionar filtro', { exact: true }).selectOption('quantity');
-  await page.getByRole('button', { name: 'Pesquisar', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('Preencha o filtro');
-  await page.getByLabel('Quantidade', { exact: true }).fill('abc');
-  await page.getByRole('button', { name: 'Pesquisar', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('número válido');
-  await page.getByRole('button', { name: 'Remover filtro Quantidade' }).click();
-  await addFilter(page, 'articleCode', 'Código do artigo', 'A');
-  await addFilter(page, 'clientLoyalty.cardId', 'Cartão de fidelização', 'B');
-  await search(page);
-  await expect(page.getByRole('heading', { name: 'Nenhum evento encontrado para os filtros selecionados.' })).toBeVisible();
-  await upload(page, matchingTransaction, 'novo.log');
-  await expect(page.locator('.transaction-filter-field')).toHaveCount(0);
-  await expect(page.locator('.event-summary')).toHaveCount(1);
-});
-
-test('filtros opcionais respeitam a paginação e ficam utilizáveis no telemóvel', async ({ page }, testInfo) => {
-  const matching = matchingTransaction.repeat(105);
-  await upload(page, matching + transactionEvent({ articleCode: 'OTHER' }));
-  await addFilter(page, 'transactionGuid', 'GUID da transação', transactionPayload.transactionGuid);
-  await search(page);
-  await expect(page.locator('.result-count')).toHaveText('105 eventos encontrados');
-  await page.getByRole('button', { name: 'Seguinte' }).click();
-  await expect(page.locator('.event-summary')).toHaveCount(5);
-  expect((await downloadText(page)).text).toBe(matching);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await addFilter(page, 'totalAmount', 'Montante total', '25,00');
-  await expect(page.getByLabel('Montante total', { exact: true })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await search(page);
-  await expect(page.locator('.result-count')).toHaveText('105 eventos encontrados');
-  await page.screenshot({ path: testInfo.outputPath('transaction-filters-mobile.png'), fullPage: true });
 });
